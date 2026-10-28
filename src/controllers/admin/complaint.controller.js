@@ -2,10 +2,26 @@ import Class from "../../models/class.model.js";
 import Student from "../../models/student.model.js";
 import Teacher from "../../models/teacher.model.js";
 import Guardian from "../../models/guardian.model.js";
+import User from "../../models/user.model.js";
+import Admin from "../../models/admin.model.js";
 import {uploadFiles, deleteFromCloudinaryMany} from '../../middleware/multer.middleware.js'
 import ENV from "../../config/env.js";  
 import mongoose from "mongoose";
 import Complaint from "../../models/complaint.model.js";
+
+const ALLOWED_STATUSES = ['pending', 'under_review', 'in_progress', 'resolved'];
+
+const STATUS_LABELS = {
+    pending: 'Open',
+    under_review: 'Under review',
+    in_progress: 'Under review',
+    resolved: 'Resolved',
+};
+
+const getStatusValue = (status) => {
+    if (Array.isArray(status)) return status[0] || 'pending';
+    return status || 'pending';
+};
 
 
 const isObjectId = (value) => {
@@ -140,8 +156,16 @@ const serializeComplaint = (complaint, peopleMap) => {
             ? complaint.toObject()
             : { ...complaint };
 
+    const statusVal = getStatusValue(plain.status);
+    const statusLabel = STATUS_LABELS[statusVal] || 'Open';
+
     return {
         ...plain,
+        statusLabel,
+        'status label': statusLabel,
+        resolvedAt: plain.resolvedAt || null,
+        resolutionNote: plain.resolutionNote || plain.resolutionNotes || '',
+        statusHistory: plain.statusHistory || [],
         reporter: mapPerson(plain.reporter, peopleMap),
         reportedParty: normalizeFreeText(plain.reportedParty, 50),
         witnesses: normalizeFreeText(plain.witnesses, 200),
@@ -178,8 +202,10 @@ const getComplaintById = async (req, res, next) => {
       return res.status(400).json({ message: 'Invalid complaint ID' });
     }
 
-    const complaint = await Complaint.findById(id).lean();
-    if (!complaint) {
+    const complaint = await Complaint.findById(id)
+      .populate('statusHistory.changedBy', 'firstName lastName')
+      .lean();
+    if (!complaint || complaint.isDeleted) {
       return res.status(404).json({ message: 'Complaint not found' });
     }
 
@@ -194,7 +220,143 @@ const getComplaintById = async (req, res, next) => {
   }
 };
 
+const updateComplaintStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, resolutionNote } = req.body;
 
+    if (!isObjectId(id)) {
+      return res.status(400).json({ message: 'Invalid complaint ID' });
+    }
 
+    const complaint = await Complaint.findById(id);
+    if (!complaint || complaint.isDeleted) {
+      return res.status(404).json({ message: 'Complaint not found' });
+    }
 
-export {getComplaints, getComplaintById}
+    if (!status || typeof status !== 'string') {
+      return res.status(400).json({
+        message: 'Valid status is required. Allowed values: pending, under_review, resolved',
+      });
+    }
+
+    const normalizedStatus = status.trim().toLowerCase();
+    if (!ALLOWED_STATUSES.includes(normalizedStatus)) {
+      return res.status(400).json({
+        message: 'Invalid status. Allowed values: pending, under_review, resolved',
+      });
+    }
+
+    const currentStatus = getStatusValue(complaint.status);
+    const isSameStatus =
+      currentStatus === normalizedStatus ||
+      (['under_review', 'in_progress'].includes(currentStatus) &&
+        ['under_review', 'in_progress'].includes(normalizedStatus));
+
+    if (isSameStatus) {
+      return res.status(400).json({
+        message: `Complaint is already ${currentStatus}`,
+      });
+    }
+
+    if (
+      resolutionNote !== undefined &&
+      resolutionNote !== null &&
+      typeof resolutionNote === 'string' &&
+      resolutionNote.length > 500
+    ) {
+      return res.status(400).json({
+        message: 'Resolution note cannot exceed 500 characters',
+      });
+    }
+
+    const noteText =
+      resolutionNote !== undefined && resolutionNote !== null
+        ? String(resolutionNote).trim()
+        : '';
+
+    if (normalizedStatus === 'resolved') {
+      const now = new Date();
+      complaint.resolvedAt = now;
+      complaint.dateResolved = now;
+      complaint.resolutionDate = now;
+      complaint.resolvedBy = req.admin?._id || null;
+      if (resolutionNote !== undefined) {
+        complaint.resolutionNote = noteText;
+        complaint.resolutionNotes = noteText;
+      }
+    } else if (normalizedStatus === 'under_review' || normalizedStatus === 'in_progress') {
+      complaint.reviewedAt = new Date();
+      complaint.resolvedAt = null;
+      complaint.dateResolved = null;
+      complaint.resolutionDate = null;
+      complaint.resolvedBy = null;
+      if (resolutionNote !== undefined) {
+        complaint.resolutionNote = noteText;
+        complaint.resolutionNotes = noteText;
+      }
+    } else if (normalizedStatus === 'pending') {
+      complaint.resolvedAt = null;
+      complaint.dateResolved = null;
+      complaint.resolutionDate = null;
+      complaint.resolvedBy = null;
+      complaint.resolutionNote = '';
+      complaint.resolutionNotes = '';
+    }
+
+    complaint.status = [normalizedStatus];
+
+    if (!Array.isArray(complaint.statusHistory)) {
+      complaint.statusHistory = [];
+    }
+
+    complaint.statusHistory.push({
+      status: normalizedStatus,
+      changedBy: req.admin?._id || null,
+      changedAt: new Date(),
+      note: noteText,
+    });
+
+    await complaint.save();
+
+    const savedComplaint = await Complaint.findById(complaint._id)
+      .populate('statusHistory.changedBy', 'firstName lastName')
+      .lean();
+
+    const peopleMap = await hydratePeopleByIds(collectPersonIds([savedComplaint]));
+
+    res.json({
+      message: 'Complaint status updated',
+      complaint: serializeComplaint(savedComplaint, peopleMap),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export { getComplaints, getComplaintById, updateComplaintStatus, serializeComplaint };
+
+export const deleteComplaint = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const complaint = await ComplaintModel.findById(id);
+    if (!complaint) {
+      return res.status(404).json({ success: false, message: 'Complaint not found' });
+    }
+
+    if (complaint.attachment) {
+      try {
+        const publicId = getPublicIdFromUrl(complaint.attachment);
+        if (publicId) await deleteImageFromCloudinary(publicId);
+      } catch (e) {
+        console.error('Error deleting complaint attachment from cloudinary:', e);
+      }
+    }
+
+    await ComplaintModel.findByIdAndDelete(id);
+    return res.status(200).json({ success: true, message: 'Complaint deleted successfully' });
+  } catch (error) {
+    console.error('Error in deleteComplaint:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
