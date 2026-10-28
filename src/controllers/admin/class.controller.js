@@ -109,6 +109,7 @@ const addClass = async (req, res, next) => {
       grade,
       academicYear,
       courses,
+      teachers,
       isActive,
     } = req.body;
 
@@ -148,6 +149,7 @@ const addClass = async (req, res, next) => {
 
     const uploaded = await uploadFiles(req.files, 'classes');
     const courseIds = selectedCourses.map((course) => course._id);
+    const teacherIds = parseObjectIds(teachers);
 
     const newClass = await Class.create({
       className: className.trim(),
@@ -158,7 +160,15 @@ const addClass = async (req, res, next) => {
       coverImage: uploaded.coverImage || '',
       isActive: isActive === undefined ? true : isActive === true || isActive === 'true',
       courses: courseIds,
+      teachers: teacherIds,
     });
+
+    if (teacherIds.length) {
+      await Teacher.updateMany(
+        { _id: { $in: teacherIds } },
+        { $addToSet: { classes: newClass._id } }
+      );
+    }
 
     if (selectedCourses.length) {
       await syncClassCourses(newClass._id, [], selectedCourses);
@@ -169,6 +179,13 @@ const addClass = async (req, res, next) => {
         '-assignments -announcements -events -resources -notifications -exams -quizzes -complaints'
       )
       .populate('courses', 'courseName courseCode courseType courseStatus courseDescription')
+      .populate({
+        path: 'teachers',
+        populate: {
+          path: 'user',
+          select: 'firstName lastName email photo isActive',
+        },
+      })
       .lean();
 
     res.status(201).json({
@@ -290,6 +307,7 @@ const updateClass = async (req, res, next) => {
       grade,
       academicYear,
       courses,
+      teachers,
       isActive,
       removeCoverImage,
     } = req.body;
@@ -356,6 +374,30 @@ const updateClass = async (req, res, next) => {
       await syncClassCourses(classItem._id, previousCourseIds, selectedCourses);
     }
 
+    if (teachers !== undefined) {
+      const teacherIds = parseObjectIds(teachers);
+      const previousTeacherIds = (classItem.teachers || []).map((id) => id.toString());
+      classItem.teachers = teacherIds;
+
+      const previousSet = new Set(previousTeacherIds);
+      const nextSet = new Set(teacherIds);
+      const removedTeacherIds = previousTeacherIds.filter((id) => !nextSet.has(id));
+      const addedTeacherIds = teacherIds.filter((id) => !previousSet.has(id));
+
+      if (removedTeacherIds.length) {
+        await Teacher.updateMany(
+          { _id: { $in: removedTeacherIds } },
+          { $pull: { classes: classItem._id } }
+        );
+      }
+      if (addedTeacherIds.length) {
+        await Teacher.updateMany(
+          { _id: { $in: addedTeacherIds } },
+          { $addToSet: { classes: classItem._id } }
+        );
+      }
+    }
+
     await classItem.save();
     await deleteFromCloudinaryMany(urlsToDelete);
 
@@ -390,4 +432,54 @@ const updateClass = async (req, res, next) => {
 };
 
 
-export {addClass, getClasses, getClassById, updateClass}
+
+const deleteClass = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid class ID' });
+    }
+
+    const classItem = await Class.findById(id);
+
+    if (!classItem) {
+      return res.status(404).json({ message: 'Class not found' });
+    }
+
+    // 1. Remove cover image from Cloudinary if exists
+    if (classItem.coverImage) {
+      await deleteFromCloudinaryMany([classItem.coverImage]);
+    }
+
+    // 2. Remove class from assigned teachers
+    await Teacher.updateMany(
+      { classes: id },
+      { $pull: { classes: id } }
+    );
+
+    // 3. Unlink class from courses
+    await Course.updateMany(
+      { courseClass: id },
+      { $unset: { courseClass: 1 } }
+    );
+
+    // 4. Unlink class from students
+    await Student.updateMany(
+      { class: id },
+      { $unset: { class: 1 } }
+    );
+
+    // 5. Delete the class record
+    await Class.findByIdAndDelete(id);
+
+    res.json({
+      message: 'Class deleted successfully',
+      id,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export { addClass, getClasses, getClassById, updateClass, deleteClass };

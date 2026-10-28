@@ -7,13 +7,33 @@ import userRoutes from "./routes/user.route.js"
 import adminRoutes from "./routes/admin.route.js"
 import teacherRoutes from "./routes/teacher.route.js"
 import seedAdmin from "./config/seedAmin.js";
+import { mountWebhooks } from "./webhooks/index.js";
 
 const app = express()
 
+const allowedOrigins = [
+    ENV.FRONTEND_URL,
+    ENV.ADMIN_URL,
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174",
+].filter(Boolean).map(url => url.replace(/\/$/, ""));
+
 app.use(cors({
-    origin:[ENV.FRONTEND_URL, ENV.ADMIN_URL],
+    origin: (origin, callback) => {
+        // Allow requests with no origin (like mobile apps or curl) or if in allowed list
+        if (!origin || allowedOrigins.includes(origin.replace(/\/$/, ""))) {
+            callback(null, true);
+        } else {
+            callback(new Error(`CORS blocked for origin: ${origin}`));
+        }
+    },
     credentials: true
 }))
+
+// Mount inbound webhook routes before express.json() for raw body verification
+mountWebhooks(app);
 
 app.use(express.json())
 

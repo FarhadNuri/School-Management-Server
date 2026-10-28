@@ -9,6 +9,7 @@ import User from '../../models/user.model.js';
 import Lesson from '../../models/lesson.model.js';
 import Homework from '../../models/homework.model.js';
 import Attendance from '../../models/attendance.model.js';
+import Payment from '../../models/payment.model.js';
 
 const firstEnum = (value) => {
     if (Array.isArray(value)) return value[0] || '';
@@ -98,6 +99,7 @@ const getAdminDashboard = async (req, res, next) => {
       resolvedComplaintsCount,
       lessonsThisWeek,
       homeworksDueSoon,
+      pendingPaymentsCount,
       attendanceWeek,
       recentStudents,
       recentTeachers,
@@ -123,7 +125,7 @@ const getAdminDashboard = async (req, res, next) => {
         { $group: { _id: '$role', count: { $sum: 1 } } },
       ]),
       Complaint.countDocuments({ status: 'pending' }),
-      Complaint.countDocuments({ status: 'in_progress' }),
+      Complaint.countDocuments({ status: { $in: ['in_progress', 'under_review'] } }),
       Complaint.countDocuments({ status: 'resolved' }),
       Lesson.countDocuments({
         isActive: true,
@@ -132,6 +134,10 @@ const getAdminDashboard = async (req, res, next) => {
       Homework.countDocuments({
         isActive: true,
         dueDate: { $gte: today, $lte: weekAhead },
+      }),
+      Payment.countDocuments({
+        status: { $in: ['pending', 'partially_paid'] },
+        isActive: { $ne: false },
       }),
       Attendance.countDocuments({
         date: { $gte: weekBehind, $lte: addDays(today, 1) },
@@ -228,7 +234,7 @@ const getAdminDashboard = async (req, res, next) => {
         label: 'Under review',
         count: Math.max(
           inProgressComplaintsCount,
-          statusMap.get('in_progress') || 0
+          (statusMap.get('in_progress') || 0) + (statusMap.get('under_review') || 0)
         ),
       },
       {
@@ -336,6 +342,7 @@ const getAdminDashboard = async (req, res, next) => {
         inactiveUsers,
         lessonsThisWeek,
         homeworksDueSoon,
+        pendingPayments: pendingPaymentsCount,
         attendanceWeek,
       },
       population,

@@ -4,6 +4,7 @@ const courseSchema = new Schema({
   courseName: { type: String, required: true, trim: true, maxlength: [50, 'Course name must be less than 50 characters'] },
   courseCode: { type: String, required: true, trim: true, maxlength: [10, 'Course code must be less than 10 characters'] },
   courseDescription: { type: String, trim: true, default: '', maxlength: [500, 'Course description must be less than 500 characters'] },
+  coverImage: { type: String, trim: true, default: '' },
   courseType: { type: String, enum: ['Core', 'Elective', 'Optional'], default: 'Core' },
   courseStatus: { type: String, enum: ['Active', 'Inactive'], default: 'Active' },
   courseTeachers: [{ type: Schema.Types.ObjectId, ref: 'Teacher' }],

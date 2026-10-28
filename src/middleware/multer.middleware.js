@@ -1,42 +1,42 @@
-import multer from "multer";
+﻿import multer from "multer";
 import cloudinary from '../config/cloudinary.js'
 
 
 const ALLOWED_TYPES = [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/jpg',
-    'appliocation/pdf'
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/jpg',
+  'appliocation/pdf'
 ]
 
 
 const storage = multer.memoryStorage();
 
-const fileFilter = (_req,file,cb) => {
-    if(ALLOWED_TYPES.includes(file.mimetype)) {
-        cb(null,true);
-        return;
-    }
-    cb(new Error('Only Images and PDF files are allowes.'))
+const fileFilter = (_req, file, cb) => {
+  if (ALLOWED_TYPES.includes(file.mimetype)) {
+    cb(null, true);
+    return;
+  }
+  cb(new Error('Only Images and PDF files are allowes.'))
 }
 
-const upload = multer ( {
-    storage,
-    limits:{fileSize: 5*1024*1024},
-    fileFilter,
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter,
 })
 
 
 const uploadTeacherFiles = upload.fields([
-    {name: 'picture', maxCount: 1},
-    {name: 'qualification0', maxCount: 1},
-    {name: 'qualification1', maxCount: 1},
-    {name: 'qualification2', maxCount: 1},
-    {name: 'idFront', maxCount: 1},
-    {name: 'idBack', maxCount: 1},
+  { name: 'picture', maxCount: 1 },
+  { name: 'qualification0', maxCount: 1 },
+  { name: 'qualification1', maxCount: 1 },
+  { name: 'qualification2', maxCount: 1 },
+  { name: 'idFront', maxCount: 1 },
+  { name: 'idBack', maxCount: 1 },
 ])
-  
+
 /*
 @param {object} file
 @param {string} folder
@@ -44,21 +44,19 @@ const uploadTeacherFiles = upload.fields([
 
 */
 const uploadToCloudinary = (file, folder = 'teachers') => new Promise((resolve, reject) => {
-    const isImage = String(file.mimetype || '').startsWith('image/')
-    cloudinary.uploader
-        .upload_stream ({
-            folder: `school-webapp/${folder}`,
-            resource_type : isImage?'image':'raw',
-            public_id: file.originalname
-                ? file.originalname.replace(/\.[^.]+$/,'')
-                : undefined,
-            use_filename: true,
-            unique_filename: true
-        },
-    (error, result) => {
-        if(error) reject(error);
+  const isImage = String(file.mimetype || '').startsWith('image/')
+  cloudinary.uploader
+    .upload_stream({
+      folder: `school-webapp/${folder}`,
+      resource_type: isImage ? 'image' : 'raw',
+      public_id: (String(file.mimetype || '').startsWith('image/') ? (file.originalname ? file.originalname.replace(/\.[^.]+$/, '') : undefined) : (file.originalname || 'document')),
+      use_filename: true,
+      unique_filename: true
+    },
+      (error, result) => {
+        if (error) reject(error);
         else resolve(result.secure_url)
-    }
+      }
     )
     .end(file.buffer)
 })
@@ -95,8 +93,16 @@ const lessonUpload = multer({
   },
 });
 
-  
-const uploadLessonFiles = lessonUpload.array('materials', 10);
+
+const LESSON_ALLOWED_EXTENSIONS = [
+  '.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg',
+  '.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt', '.csv'
+];
+
+const uploadLessonFiles = lessonUpload.fields([
+  { name: 'materials', maxCount: 10 },
+  { name: 'files', maxCount: 10 },
+]);
 /**
  * Uploads an array of Multer files to Cloudinary in parallel.
  *
@@ -108,13 +114,23 @@ const uploadLessonFiles = lessonUpload.array('materials', 10);
  * @returns {Promise<string[]>} Array of secure URLs
  */
 const uploadFileList = async (files = [], folder = 'lessons') => {
-  const list = Array.isArray(files) ? files : [];
-  return Promise.all(list.map((file) => uploadToCloudinary(file, folder)));
+  let list = [];
+  if (Array.isArray(files)) {
+    list = files;
+  } else if (files && typeof files === 'object') {
+    list = [
+      ...(files.materials || []),
+      ...(files.files || []),
+      ...Object.values(files).flat(),
+    ];
+  }
+  const uniqueFiles = [...new Set(list.filter(Boolean))];
+  return Promise.all(uniqueFiles.map((file) => uploadToCloudinary(file, folder)));
 };
 
 const uploadClassFiles = upload.fields([
-    {name: 'coverImage', maxCount:1}
-])  
+  { name: 'coverImage', maxCount: 1 }
+])
 
 
 const uploadStudentFiles = upload.fields([
@@ -124,6 +140,13 @@ const uploadStudentFiles = upload.fields([
   { name: 'guardianPhoto', maxCount: 1 },
   { name: 'guardianIdFront', maxCount: 1 },
   { name: 'guardianIdBack', maxCount: 1 },
+]);
+
+const uploadCourseFiles = upload.fields([
+  { name: 'coverImage', maxCount: 1 },
+  { name: 'image', maxCount: 1 },
+  { name: 'photo', maxCount: 1 },
+  { name: 'courseImage', maxCount: 1 },
 ]);
 
 
@@ -157,21 +180,21 @@ const uploadFiles = async (files = {}, folder = 'teachers') => {
 };
 
 const getCloudinaryMeta = (url) => {
-    if (!url || typeof url !== 'string') {
-        return null;
-    }
-    // PDFs/docs were uploaded as "raw"; images as "image"
-    const resourceType = url.includes('/raw/upload/') ? 'raw' : 'image';
-    const afterUpload = url.split('/upload/').pop();
+  if (!url || typeof url !== 'string') {
+    return null;
+  }
+  // PDFs/docs were uploaded as "raw"; images as "image"
+  const resourceType = url.includes('/raw/upload/') ? 'raw' : 'image';
+  const afterUpload = url.split('/upload/').pop();
 
-    if (!afterUpload) return null;
+  if (!afterUpload) return null;
 
-    // Strip version segment (v123456/) then drop the file extension for public_id
-    const path = afterUpload.replace(/^v\d+\//, '');
-    const dotIndex = path.lastIndexOf('.');
-    const publicId = dotIndex > -1 ? path.slice(0, dotIndex) : path;
+  // Strip version segment (v123456/) then drop the file extension for public_id
+  const path = afterUpload.replace(/^v\d+\//, '');
+  const dotIndex = path.lastIndexOf('.');
+  const publicId = dotIndex > -1 ? path.slice(0, dotIndex) : path;
 
-    return { publicId, resourceType };
+  return { publicId, resourceType };
 };
 
 const deleteFromCloudinary = async (url) => {
@@ -206,6 +229,17 @@ const handleTeacherUpload = (req, res, next) => {
 
 const handleClassUpload = (req, res, next) => {
   uploadClassFiles(req, res, (error) => {
+    if (error) {
+      return res.status(400).json({
+        message: error.message || 'File upload failed',
+      });
+    }
+    next();
+  });
+};
+
+const handleCourseUpload = (req, res, next) => {
+  uploadCourseFiles(req, res, (error) => {
     if (error) {
       return res.status(400).json({
         message: error.message || 'File upload failed',
@@ -254,11 +288,45 @@ const handleLessonUpload = (req, res, next) => {
         message: error.message || 'File upload failed',
       });
     }
+    if (req.files && !Array.isArray(req.files)) {
+      const flattened = [
+        ...(req.files.materials || []),
+        ...(req.files.files || []),
+        ...Object.values(req.files).flat(),
+      ];
+      req.files = [...new Set(flattened.filter(Boolean))];
+    }
     next();
   });
 };
 
 const handleHomeworkUpload = handleLessonUpload;
+
+const uploadAnnouncementFiles = lessonUpload.fields([
+  { name: 'attachments', maxCount: 10 },
+  { name: 'files', maxCount: 10 },
+  { name: 'materials', maxCount: 10 },
+]);
+
+const handleAnnouncementUpload = (req, res, next) => {
+  uploadAnnouncementFiles(req, res, (error) => {
+    if (error) {
+      return res.status(400).json({
+        message: error.message || 'File upload failed',
+      });
+    }
+    if (req.files && !Array.isArray(req.files)) {
+      const flattened = [
+        ...(req.files.attachments || []),
+        ...(req.files.files || []),
+        ...(req.files.materials || []),
+        ...Object.values(req.files).flat(),
+      ];
+      req.files = [...new Set(flattened.filter(Boolean))];
+    }
+    next();
+  });
+};
 
 // Image-only MIME types for admin profile photo updates.
 const IMAGE_TYPES = [
@@ -301,15 +369,17 @@ const handleUserPhotoUpload = (req, res, next) => {
 
 
 export {
-    handleTeacherUpload,
-    handleClassUpload,
-    handleStudentUpload,
-    handleGuardianUpload,
-    handleComplaintUpload,
-    handleLessonUpload,
-    handleHomeworkUpload,
-    handleUserPhotoUpload,
-    uploadFiles,
-    uploadFileList,
-    deleteFromCloudinaryMany,
+  handleCourseUpload,
+  handleTeacherUpload,
+  handleClassUpload,
+  handleStudentUpload,
+  handleGuardianUpload,
+  handleComplaintUpload,
+  handleLessonUpload,
+  handleHomeworkUpload,
+  handleAnnouncementUpload,
+  handleUserPhotoUpload,
+  uploadFiles,
+  uploadFileList,
+  deleteFromCloudinaryMany,
 };

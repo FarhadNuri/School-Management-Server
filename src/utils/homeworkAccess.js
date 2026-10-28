@@ -22,16 +22,22 @@ const homeworkPopulate = [
 
 // True if this teacher is listed on the class. 
 // Used when checking whether they may create lessons, homework, or exams for that class.
-const isAssignedClass = (classItem, teacherId) => {
-  if (!classItem || !teacherId) return false;
+const isAssignedClass = (classItem, teacher) => {
+  if (!classItem || !teacher) return false;
 
+  const teacherId = teacher._id || teacher.id || teacher;
   const targetTeacherId = String(teacherId);
 
-  // classItem.teachers might be an array of ObjectIds or populated teacher objects
-  return (classItem.teachers || []).some((teacher) => {
-    const teacherIdStr = String(teacher._id || teacher);
-    return teacherIdStr === targetTeacherId;
+  const isTeacherOnClass = (classItem.teachers || []).some((t) => {
+    const tStr = String(t._id || t.id || t);
+    return tStr === targetTeacherId;
   });
+
+  const linkedClassIds = (teacher.classes || []).map((id) =>
+    String(id._id || id.id || id)
+  );
+
+  return isTeacherOnClass || linkedClassIds.includes(String(classItem._id || classItem.id || classItem));
 };
 const buildHomeworkVisibilityQuery = (context) => {
   const query = { isActive: true };
@@ -74,6 +80,13 @@ const canAccessHomework = (homework, context) => {
   return false;
 };
 
+const getTeacherName = (homework) => {
+  const teacher = homework?.teacher;
+  if (!teacher) return '';
+  const user = teacher.user || teacher;
+  return `${user.firstName || ''} ${user.lastName || ''}`.trim();
+};
+
 const serializeHomework = (homework) => {
   const plain = typeof homework.toObject === 'function' ? homework.toObject() : { ...homework };
 
@@ -82,8 +95,10 @@ const serializeHomework = (homework) => {
     _id: homework._id,
     title: homework.title || '',
     description: homework.description || '',
+    instructions: homework.instructions || homework.description || '',
     subject: homework.subject || homework.course?.courseName || '',
     dueDate: homework.dueDate || null,
+    materials: Array.isArray(homework.materials) ? homework.materials : [],
     
     // Class info
     classId: homework.class?._id || null,
@@ -100,6 +115,7 @@ const serializeHomework = (homework) => {
     teacherId: homework.teacher?._id || null,
     teacher: getTeacherName(homework),
     
+    maxScore: homework.maxScore,
     isActive: homework.isActive ?? true,
     createdAt: homework.createdAt,
     updatedAt: homework.updatedAt,

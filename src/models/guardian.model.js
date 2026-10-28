@@ -1,4 +1,5 @@
 import { Schema, model } from 'mongoose';
+import { ID_TYPES } from '../utils/idTypes.js';
 
 const guardianSchema = new Schema(
   {
@@ -12,7 +13,7 @@ const guardianSchema = new Schema(
     idType: {
       type: String,
       required: true,
-      enum: ['National ID', 'Passport', "Driver's License", 'Other'],
+      enum: ID_TYPES,
       default: 'National ID',
     },
     idPhoto: { type: String, default: '' },

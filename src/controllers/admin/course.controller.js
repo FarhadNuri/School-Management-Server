@@ -68,6 +68,15 @@ const addCourse = async (req, res, next) => {
             classId = linkedClass._id;
         }
 
+        let coverImage = req.body.coverImage || req.body.image || '';
+        if (req.files && Object.keys(req.files).length > 0) {
+            const uploaded = await uploadFiles(req.files, 'courses');
+            coverImage = uploaded.coverImage || uploaded.image || uploaded.photo || uploaded.courseImage || coverImage;
+        } else if (req.file) {
+            const uploaded = await uploadFiles({ image: [req.file] }, 'courses');
+            coverImage = uploaded.image || coverImage;
+        }
+
         const course = await Course.create({
             courseName: courseName.trim(),
             courseCode: normalizedCode,
@@ -76,6 +85,7 @@ const addCourse = async (req, res, next) => {
             courseStatus: courseStatus || 'Active',
             courseClass: classId,
             courseTeachers: parseObjectIds(courseTeachers),
+            coverImage,
         });
 
         if (classId) {
@@ -248,6 +258,34 @@ const updateCourse = async (req, res, next) => {
             course.courseTeachers = parseObjectIds(courseTeachers);
         }
 
+        if (req.files && Object.keys(req.files).length > 0) {
+            const uploaded = await uploadFiles(req.files, 'courses');
+            const newCover = uploaded.coverImage || uploaded.image || uploaded.photo || uploaded.courseImage;
+            if (newCover) {
+                if (course.coverImage) {
+                    await deleteFromCloudinaryMany([course.coverImage]);
+                }
+                course.coverImage = newCover;
+            }
+        } else if (req.file) {
+            const uploaded = await uploadFiles({ image: [req.file] }, 'courses');
+            const newCover = uploaded.image;
+            if (newCover) {
+                if (course.coverImage) {
+                    await deleteFromCloudinaryMany([course.coverImage]);
+                }
+                course.coverImage = newCover;
+            }
+        } else if (req.body.coverImage !== undefined || req.body.image !== undefined) {
+            const newCover = req.body.coverImage ?? req.body.image ?? '';
+            if (newCover !== course.coverImage) {
+                if (course.coverImage && !newCover) {
+                    await deleteFromCloudinaryMany([course.coverImage]);
+                }
+                course.coverImage = newCover;
+            }
+        }
+
         await course.save();
 
         if (previousClassId !== nextClassIdStr) {
@@ -289,4 +327,42 @@ const updateCourse = async (req, res, next) => {
     }
 };
 
-export {addCourse, getCourses, getCourseById, updateCourse}
+
+const deleteCourse = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'Invalid course ID' });
+        }
+
+        const course = await Course.findById(id);
+
+        if (!course) {
+            return res.status(404).json({ message: 'Course not found' });
+        }
+
+        // 1. Remove cover image from Cloudinary if exists
+        if (course.coverImage) {
+            await deleteFromCloudinaryMany([course.coverImage]);
+        }
+
+        // 2. Remove course from classes
+        await Class.updateMany(
+            { courses: id },
+            { $pull: { courses: id } }
+        );
+
+        // 3. Delete the course record
+        await Course.findByIdAndDelete(id);
+
+        res.json({
+            message: 'Course deleted successfully',
+            id,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export { addCourse, getCourses, getCourseById, updateCourse, deleteCourse };
