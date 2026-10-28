@@ -78,7 +78,7 @@ const sendInvoiceEmail = async (payment) => {
   const dashboardUrl = ENV.FRONTEND_URL
     ? `${ENV.FRONTEND_URL.replace(/\/$/, '')}/dashboard/payments`
     : '';
-  const payUrl = dashboardUrl;
+  const payUrl = payment.stripeHostedInvoiceUrl || dashboardUrl;
 
   const template = invoiceIssuedEmail({
     firstName: guardianUser.firstName,
