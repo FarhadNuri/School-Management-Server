@@ -1,4 +1,5 @@
 import { Schema, model } from 'mongoose';
+import { ID_TYPES } from '../utils/idTypes.js';
 
 const studentSchema = new Schema(
   {
@@ -11,7 +12,7 @@ const studentSchema = new Schema(
     idType: {
       type: String,
       required: true,
-      enum: ['National ID', 'Passport', "Driver's License", 'Other'],
+      enum: ID_TYPES,
       default: 'National ID',
     },
     // Legacy single-document field; prefer identification.front/back
