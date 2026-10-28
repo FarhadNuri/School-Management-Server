@@ -72,12 +72,11 @@ const createAndFinalizeInvoice = async ({
 
   const paymentId = String(payment._id);
 
-  // Create an invoice item for the customer
-  await stripe.invoiceItems.create({
+    // 1. Create the draft invoice first
+  const invoice = await stripe.invoices.create({
     customer: customerId,
-    amount: unitAmount,
-    currency,
-    description: payment.title || description,
+    collection_method: 'send_invoice',
+    days_until_due: daysUntilDue,
     metadata: {
       paymentId,
       purpose: payment.purpose,
@@ -86,11 +85,13 @@ const createAndFinalizeInvoice = async ({
     },
   });
 
-  // Create the draft invoice
-  const invoice = await stripe.invoices.create({
+  // 2. Attach the invoice item directly to this draft invoice
+  await stripe.invoiceItems.create({
     customer: customerId,
-    collection_method: 'send_invoice',
-    days_until_due: daysUntilDue,
+    invoice: invoice.id,
+    amount: unitAmount,
+    currency,
+    description: payment.title || description,
     metadata: {
       paymentId,
       purpose: payment.purpose,
