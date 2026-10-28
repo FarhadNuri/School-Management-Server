@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 
 import Teacher from '../../models/teacher.model.js';
 import Class from '../../models/class.model.js';
+import Course from '../../models/course.model.js';
 import { User } from '../../models/user.model.js';
 import { uploadFiles, deleteFromCloudinaryMany } from '../../middleware/multer.middleware.js';
 import generatePassword from '../../utils/generatePassword.js';
@@ -37,6 +38,19 @@ const teacherPopulate = [
     select: 'className classCode grade academicYear isActive',
   },
 ];
+
+const calculateAge = (dobString) => {
+  if (!dobString) return 0;
+  const birthDate = new Date(dobString);
+  if (isNaN(birthDate.getTime())) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age;
+};
 
 const parseObjectIds = (value) => {
   if (!value) return [];
@@ -143,6 +157,12 @@ export const addTeacher = async (req, res, next) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({
         message: 'Please provide a valid teacher email address',
+      });
+    }
+
+    if (dateOfBirth && calculateAge(dateOfBirth) < 18) {
+      return res.status(400).json({
+        message: 'Teacher must be at least 18 years old',
       });
     }
 
@@ -267,321 +287,445 @@ export const addTeacher = async (req, res, next) => {
       teacher: teacherData,
     });
   } catch (error) {
-    console.error('Error creating teacher:', error.message);
-    if (createdTeacherId) {
-      await Teacher.findByIdAndDelete(createdTeacherId).catch(() => {});
-      await Class.updateMany(
-        { teachers: createdTeacherId },
-        { $pull: { teachers: createdTeacherId } }
-      ).catch(() => {});
-    }
-    if (createdUserId) {
-      await User.findByIdAndDelete(createdUserId).catch(() => {});
-    }
-    await deleteFromCloudinaryMany(uploadedUrls);
-    next(error);
-  }
-};
-
-export const getTeachers = async (req, res, next) => {
-  try {
-    const { search, isActive } = req.query;
-    const userIds = await findUserIds({ role: 'teacher', search, isActive });
-
-    const teachers = await Teacher.find({ user: { $in: userIds } })
-      .populate(teacherPopulate)
-      .sort({ createdAt: -1 })
-      .lean();
-
-    res.json({
-      count: teachers.length,
-      teachers,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const getTeacherById = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid teacher ID' });
-    }
-
-    const teacher = await Teacher.findById(id).populate(teacherPopulate).lean();
-
-    if (!teacher || !teacher.user || teacher.user.isDeleted) {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
-
-    res.json({ teacher });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const setTeacherStatus = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { isActive } = req.body;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid teacher ID' });
-    }
-
-    if (isActive === undefined) {
-      return res.status(400).json({ message: 'isActive is required' });
-    }
-
-    const teacher = await Teacher.findById(id);
-    if (!teacher) {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
-
-    const user = await User.findById(teacher.user);
-    if (!user || user.isDeleted) {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
-
-    user.isActive = isTrue(isActive);
-    await user.save();
-
-    const teacherData = await Teacher.findById(id).populate(teacherPopulate);
-
-    res.json({
-      message: user.isActive
-        ? 'Teacher unbanned successfully'
-        : 'Teacher banned successfully',
-      teacher: teacherData,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const updateTeacher = async (req, res, next) => {
-  const uploadedUrls = [];
-
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid teacher ID' });
-    }
-
-    const teacher = await Teacher.findById(id);
-    if (!teacher) {
-      return res.status(404).json({ message: 'Teacher not found' });
-    }
-
-    const user = await User.findById(teacher.user);
-    if (!user || user.isDeleted) {
-      return res.status(404).json({ message: 'Teacher user account not found' });
-    }
-
-    const {
-      firstName,
-      lastName,
-      email,
-      password,
-      isActive,
-      identificationType,
-      gender,
-      dateOfBirth,
-    } = req.body;
-
-    const contactInfo = parseJson(req.body.contactInfo, null);
-    const address = parseJson(req.body.address, null);
-    const socialMedia = parseJson(req.body.socialMedia, null);
-    const qualificationTitles = req.body.qualificationTitles
-      ? parseJson(req.body.qualificationTitles, [])
-      : null;
-    const existingQualifications = req.body.existingQualifications
-      ? parseJson(req.body.existingQualifications, [])
-      : null;
-
-    if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
-      return res.status(400).json({
-        message: 'First name, last name, and email are required',
-      });
-    }
-
-    if (!isValidEmail(email)) {
-      return res.status(400).json({
-        message: 'Please provide a valid teacher email address',
-      });
-    }
-
-    let classIds;
-    try {
-      classIds = await resolveClassIds(req.body.classes);
-    } catch (classError) {
-      return res.status(classError.statusCode || 400).json({
-        message: classError.message,
-      });
-    }
-
-    const emailNormalized = email.toLowerCase().trim();
-
-    if (emailNormalized !== user.email && (await emailTaken(emailNormalized, user._id))) {
-      return res.status(409).json({ message: 'A user with this email already exists' });
-    }
-
-    const uploaded = await uploadFiles(req.files);
-    uploadedUrls.push(...Object.values(uploaded).filter(Boolean));
-    const urlsToDelete = [];
-
-    if (!uploaded.picture && !user.photo) {
+      console.error('Error creating teacher:', error.message);
+      if (createdTeacherId) {
+        await Teacher.findByIdAndDelete(createdTeacherId).catch(() => { });
+        await Class.updateMany(
+          { teachers: createdTeacherId },
+          { $pull: { teachers: createdTeacherId } }
+        ).catch(() => { });
+      }
+      if (createdUserId) {
+        await User.findByIdAndDelete(createdUserId).catch(() => { });
+      }
       await deleteFromCloudinaryMany(uploadedUrls);
-      return res.status(400).json({ message: 'Teacher profile photo is required' });
+      next(error);
     }
+  };
 
-    const hasQualificationFiles = ['qualification0', 'qualification1', 'qualification2'].some(
-      (key) => uploaded[key]
-    );
+  export const getTeachers = async (req, res, next) => {
+    try {
+      const { search, isActive } = req.query;
+      const userIds = await findUserIds({ role: 'teacher', search, isActive });
 
-    if (qualificationTitles !== null || existingQualifications !== null || hasQualificationFiles) {
-      const existing =
-        existingQualifications ??
-        teacher.qualifications.map((item) => ({
-          title: item.title,
-          document: item.document,
-        }));
-      const titles = qualificationTitles ?? existing.map((item) => item.title);
-      const qualifications = [];
+      const teachers = await Teacher.find({ user: { $in: userIds } })
+        .populate(teacherPopulate)
+        .sort({ createdAt: -1 })
+        .lean();
 
-      for (let i = 0; i < 3; i++) {
-        const newDocument = uploaded[`qualification${i}`];
-        const oldDocument = existing[i]?.document;
+      const teacherIds = teachers.map((t) => t._id);
+      const courses = await Course.find({ courseTeachers: { $in: teacherIds } })
+        .select('courseName courseCode courseClass courseTeachers')
+        .populate('courseClass', 'className classCode grade')
+        .lean();
 
-        if (newDocument && oldDocument) {
-          urlsToDelete.push(oldDocument);
-        }
-
-        const document = newDocument || oldDocument;
-
-        if (document) {
-          qualifications.push({
-            title: titles[i] || '',
-            document,
+      const teacherCoursesMap = {};
+      courses.forEach((c) => {
+        (c.courseTeachers || []).forEach((tId) => {
+          const strId = tId.toString();
+          if (!teacherCoursesMap[strId]) teacherCoursesMap[strId] = [];
+          teacherCoursesMap[strId].push({
+            id: c._id,
+            name: c.courseName,
+            code: c.courseCode,
+            className: c.courseClass?.className,
+            classCode: c.courseClass?.classCode,
+            grade: c.courseClass?.grade,
           });
-        }
-      }
-
-      if (qualifications.length < 1) {
-        return res.status(400).json({
-          message: 'At least one qualification document is required',
         });
-      }
-      teacher.qualifications
-        .map((item) => item.document)
-        .filter(Boolean)
-        .forEach((url) => {
-          if (!qualifications.some((item) => item.document === url)) {
-            urlsToDelete.push(url);
-          }
-        });
+      });
 
-      teacher.qualifications = qualifications;
+      const enrichedTeachers = teachers.map((t) => ({
+        ...t,
+        courses: teacherCoursesMap[t._id.toString()] || [],
+      }));
+
+      res.json({
+        count: enrichedTeachers.length,
+        teachers: enrichedTeachers,
+      });
+    } catch (error) {
+      next(error);
     }
+  };
 
-    const hasIdUpdate = identificationType || uploaded.idFront || uploaded.idBack;
+  export const getTeacherById = async (req, res, next) => {
+    try {
+      const { id } = req.params;
 
-    if (hasIdUpdate) {
-      const type = normalizeIdType(
-        identificationType || teacher.identification?.type || ''
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ message: 'Invalid teacher ID' });
+      }
+
+      const teacher = await Teacher.findById(id).populate(teacherPopulate).lean();
+
+      if (!teacher || !teacher.user || teacher.user.isDeleted) {
+        return res.status(404).json({ message: 'Teacher not found' });
+      }
+
+      const courses = await Course.find({ courseTeachers: id })
+        .select('courseName courseCode courseClass courseTeachers courseType courseStatus')
+        .populate('courseClass', 'className classCode grade')
+        .lean();
+
+      teacher.courses = courses.map((c) => ({
+        id: c._id,
+        name: c.courseName,
+        code: c.courseCode,
+        className: c.courseClass?.className,
+        classCode: c.courseClass?.classCode,
+        grade: c.courseClass?.grade,
+        type: c.courseType,
+        status: c.courseStatus,
+      }));
+
+      res.json({ teacher });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  export const setTeacherStatus = async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      const { isActive } = req.body;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ message: 'Invalid teacher ID' });
+      }
+
+      if (isActive === undefined) {
+        return res.status(400).json({ message: 'isActive is required' });
+      }
+
+      const teacher = await Teacher.findById(id);
+      if (!teacher) {
+        return res.status(404).json({ message: 'Teacher not found' });
+      }
+
+      const user = await User.findById(teacher.user);
+      if (!user || user.isDeleted) {
+        return res.status(404).json({ message: 'Teacher not found' });
+      }
+
+      user.isActive = isTrue(isActive);
+      await user.save();
+
+      const teacherData = await Teacher.findById(id).populate(teacherPopulate);
+
+      res.json({
+        message: user.isActive
+          ? 'Teacher unbanned successfully'
+          : 'Teacher banned successfully',
+        teacher: teacherData,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  export const updateTeacher = async (req, res, next) => {
+    const uploadedUrls = [];
+
+    try {
+      const { id } = req.params;
+
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ message: 'Invalid teacher ID' });
+      }
+
+      const teacher = await Teacher.findById(id);
+      if (!teacher) {
+        return res.status(404).json({ message: 'Teacher not found' });
+      }
+
+      const user = await User.findById(teacher.user);
+      if (!user || user.isDeleted) {
+        return res.status(404).json({ message: 'Teacher user account not found' });
+      }
+
+      const {
+        firstName,
+        lastName,
+        email,
+        password,
+        isActive,
+        identificationType,
+        gender,
+        dateOfBirth,
+      } = req.body;
+
+      const contactInfo = parseJson(req.body.contactInfo, null);
+      const address = parseJson(req.body.address, null);
+      const socialMedia = parseJson(req.body.socialMedia, null);
+      const qualificationTitles = req.body.qualificationTitles
+        ? parseJson(req.body.qualificationTitles, [])
+        : null;
+      const existingQualifications = req.body.existingQualifications
+        ? parseJson(req.body.existingQualifications, [])
+        : null;
+
+      if (!firstName?.trim() || !lastName?.trim() || !email?.trim()) {
+        return res.status(400).json({
+          message: 'First name, last name, and email are required',
+        });
+      }
+
+      if (!isValidEmail(email)) {
+        return res.status(400).json({
+          message: 'Please provide a valid teacher email address',
+        });
+      }
+
+      let classIds;
+      try {
+        classIds = await resolveClassIds(req.body.classes);
+      } catch (classError) {
+        return res.status(classError.statusCode || 400).json({
+          message: classError.message,
+        });
+      }
+
+      const emailNormalized = email.toLowerCase().trim();
+
+      if (emailNormalized !== user.email && (await emailTaken(emailNormalized, user._id))) {
+        return res.status(409).json({ message: 'A user with this email already exists' });
+      }
+
+      const uploaded = await uploadFiles(req.files);
+      uploadedUrls.push(...Object.values(uploaded).filter(Boolean));
+      const urlsToDelete = [];
+
+      if (!uploaded.picture && !user.photo) {
+        await deleteFromCloudinaryMany(uploadedUrls);
+        return res.status(400).json({ message: 'Teacher profile photo is required' });
+      }
+
+      const hasQualificationFiles = ['qualification0', 'qualification1', 'qualification2'].some(
+        (key) => uploaded[key]
       );
 
-      if (identificationType && !isValidIdType(type)) {
+      if (qualificationTitles !== null || existingQualifications !== null || hasQualificationFiles) {
+        const existing =
+          existingQualifications ??
+          teacher.qualifications.map((item) => ({
+            title: item.title,
+            document: item.document,
+          }));
+        const titles = qualificationTitles ?? existing.map((item) => item.title);
+        const qualifications = [];
+
+        for (let i = 0; i < 3; i++) {
+          const newDocument = uploaded[`qualification${i}`];
+          const oldDocument = existing[i]?.document;
+
+          if (newDocument && oldDocument) {
+            urlsToDelete.push(oldDocument);
+          }
+
+          const document = newDocument || oldDocument;
+
+          if (document) {
+            qualifications.push({
+              title: titles[i] || '',
+              document,
+            });
+          }
+        }
+
+        if (qualifications.length < 1) {
+          return res.status(400).json({
+            message: 'At least one qualification document is required',
+          });
+        }
+        teacher.qualifications
+          .map((item) => item.document)
+          .filter(Boolean)
+          .forEach((url) => {
+            if (!qualifications.some((item) => item.document === url)) {
+              urlsToDelete.push(url);
+            }
+          });
+
+        teacher.qualifications = qualifications;
+      }
+
+      const hasIdUpdate = identificationType || uploaded.idFront || uploaded.idBack;
+
+      if (hasIdUpdate) {
+        const type = normalizeIdType(
+          identificationType || teacher.identification?.type || ''
+        );
+
+        if (identificationType && !isValidIdType(type)) {
+          return res.status(400).json({
+            message: `Identification type must be one of: ${ID_TYPES.join(', ')}`,
+          });
+        }
+
+        if (uploaded.idFront && teacher.identification?.front) {
+          urlsToDelete.push(teacher.identification.front);
+        }
+
+        if (
+          (uploaded.idBack || (type === 'Passport' || type === 'Birth Certificate')) &&
+          teacher.identification?.back
+        ) {
+          urlsToDelete.push(teacher.identification.back);
+        }
+
+        const front = uploaded.idFront || teacher.identification?.front || '';
+        const back =
+          (type === 'Passport' || type === 'Birth Certificate')
+            ? ''
+            : uploaded.idBack || teacher.identification?.back || '';
+
+        if (!front) {
+          return res.status(400).json({ message: 'ID front document is required' });
+        }
+
+        if (needsIdBack(type) && !back) {
+          return res.status(400).json({ message: 'ID back document is required' });
+        }
+
+        teacher.identification = { type, front, back };
+      }
+
+      user.firstName = firstName.trim();
+      user.lastName = lastName.trim();
+      user.email = emailNormalized;
+
+      if (password) {
+        user.password = await bcrypt.hash(password, 10);
+      }
+
+      if (isActive !== undefined) {
+        user.isActive = isTrue(isActive);
+      }
+
+      if (contactInfo) {
+        user.contactInfo = normalizeContactInfo(contactInfo);
+      }
+
+      if (address) {
+        user.address = normalizeAddress(address);
+      }
+
+      if (socialMedia) {
+        user.socialMedia = normalizeSocialMedia(socialMedia);
+      }
+
+      if (gender !== undefined) {
+        user.gender = normalizeGender(gender);
+      }
+
+      if (dateOfBirth && calculateAge(dateOfBirth) < 18) {
         return res.status(400).json({
-          message: `Identification type must be one of: ${ID_TYPES.join(', ')}`,
+          message: 'Teacher must be at least 18 years old',
         });
       }
 
-      if (uploaded.idFront && teacher.identification?.front) {
-        urlsToDelete.push(teacher.identification.front);
+      if (dateOfBirth !== undefined) {
+        user.dateOfBirth = dateOfBirth || undefined;
       }
 
-      if (
-        (uploaded.idBack || type === 'Passport') &&
-        teacher.identification?.back
-      ) {
-        urlsToDelete.push(teacher.identification.back);
+      if (uploaded.picture) {
+        if (user.photo) urlsToDelete.push(user.photo);
+        user.photo = uploaded.picture;
       }
 
-      const front = uploaded.idFront || teacher.identification?.front || '';
-      const back =
-        type === 'Passport'
-          ? ''
-          : uploaded.idBack || teacher.identification?.back || '';
+      const previousClassIds = [...(teacher.classes || [])];
+      teacher.classes = classIds;
 
-      if (!front) {
-        return res.status(400).json({ message: 'ID front document is required' });
+      await Promise.all([user.save(), teacher.save()]);
+      await syncTeacherClasses(teacher._id, previousClassIds, classIds);
+
+      uploadedUrls.length = 0;
+      await deleteFromCloudinaryMany(urlsToDelete);
+
+      const teacherData = await Teacher.findById(teacher._id).populate(teacherPopulate);
+
+      res.json({
+        message: 'Teacher updated successfully',
+        teacher: teacherData,
+      });
+    } catch (error) {
+      await deleteFromCloudinaryMany(uploadedUrls);
+      next(error);
+    }
+  };
+
+export const deleteTeacher = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const teacher = await Teacher.findById(id);
+    if (!teacher) {
+      return res.status(404).json({ success: false, message: 'Teacher not found' });
+    }
+
+    const userId = teacher.user;
+
+    // Cloudinary cleanup
+    if (teacher.identification?.front) {
+      try {
+        const publicId = getPublicIdFromUrl(teacher.identification.front);
+        if (publicId) await deleteImageFromCloudinary(publicId);
+      } catch (e) {}
+    }
+    if (teacher.identification?.back) {
+      try {
+        const publicId = getPublicIdFromUrl(teacher.identification.back);
+        if (publicId) await deleteImageFromCloudinary(publicId);
+      } catch (e) {}
+    }
+    if (Array.isArray(teacher.qualifications)) {
+      for (const q of teacher.qualifications) {
+        if (q.document) {
+          try {
+            const publicId = getPublicIdFromUrl(q.document);
+            if (publicId) await deleteImageFromCloudinary(publicId);
+          } catch (e) {}
+        }
       }
+    }
 
-      if (needsIdBack(type) && !back) {
-        return res.status(400).json({ message: 'ID back document is required' });
+    if (userId) {
+      const user = await User.findById(userId);
+      if (user?.photo) {
+        try {
+          const publicId = getPublicIdFromUrl(user.photo);
+          if (publicId) await deleteImageFromCloudinary(publicId);
+        } catch (e) {}
       }
-
-      teacher.identification = { type, front, back };
+      await User.findByIdAndDelete(userId);
     }
 
-    user.firstName = firstName.trim();
-    user.lastName = lastName.trim();
-    user.email = emailNormalized;
-
-    if (password) {
-      user.password = await bcrypt.hash(password, 10);
+    // Clean up references:
+    // Remove from Class.teachers
+    try {
+      const ClassRef = typeof ClassModel !== 'undefined' ? ClassModel : (typeof Class !== 'undefined' ? Class : null);
+      if (ClassRef) {
+        await ClassRef.updateMany({ teachers: id }, { $pull: { teachers: id } });
+      }
+    } catch (e) {
+      console.error('Error removing teacher from class:', e);
     }
 
-    if (isActive !== undefined) {
-      user.isActive = isTrue(isActive);
+    // Remove from Course.courseTeachers
+    try {
+      if (typeof Course !== 'undefined') {
+        await Course.updateMany({ courseTeachers: id }, { $pull: { courseTeachers: id } });
+      }
+    } catch (e) {
+      console.error('Error removing teacher from course:', e);
     }
 
-    if (contactInfo) {
-      user.contactInfo = normalizeContactInfo(contactInfo);
-    }
+    // Delete teacher record
+    await Teacher.findByIdAndDelete(id);
 
-    if (address) {
-      user.address = normalizeAddress(address);
-    }
-
-    if (socialMedia) {
-      user.socialMedia = normalizeSocialMedia(socialMedia);
-    }
-
-    if (gender !== undefined) {
-      user.gender = normalizeGender(gender);
-    }
-
-    if (dateOfBirth !== undefined) {
-      user.dateOfBirth = dateOfBirth || undefined;
-    }
-
-    if (uploaded.picture) {
-      if (user.photo) urlsToDelete.push(user.photo);
-      user.photo = uploaded.picture;
-    }
-
-    const previousClassIds = [...(teacher.classes || [])];
-    teacher.classes = classIds;
-
-    await Promise.all([user.save(), teacher.save()]);
-    await syncTeacherClasses(teacher._id, previousClassIds, classIds);
-
-    uploadedUrls.length = 0;
-    await deleteFromCloudinaryMany(urlsToDelete);
-
-    const teacherData = await Teacher.findById(teacher._id).populate(teacherPopulate);
-
-    res.json({
-      message: 'Teacher updated successfully',
-      teacher: teacherData,
-    });
+    return res.status(200).json({ success: true, message: 'Teacher deleted successfully' });
   } catch (error) {
-    await deleteFromCloudinaryMany(uploadedUrls);
-    next(error);
+    console.error('Error in deleteTeacher:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
   }
 };

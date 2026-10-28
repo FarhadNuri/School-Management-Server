@@ -6,11 +6,13 @@ const CATEGORIES = ['general', 'academic', 'disciplinary', 'other'];
 const SEVERITIES = ['low', 'medium', 'high'];
 const TARGET_AUDIENCES = ['all', 'students', 'teachers', 'guardians', 'other'];
 
-const audienceMap = {
-    student: ['all', 'students'],
-    teacher: ['all', 'teachers'],
-    guardian: ['all', 'guardians'],
+const ROLE_TO_AUDIENCE = {
+    student: 'students',
+    teacher: 'teachers',
+    guardian: 'guardians',
 };
+
+const ALL_SPECIFIC_ROLES = ['students', 'teachers', 'guardians'];
 
 /**
  * Checks whether an announcement is accessible to the user based on role and target audience.
@@ -19,15 +21,26 @@ const canAccessAnnouncement = (announcement, user) => {
     if (!announcement || !user) return false;
     if (user.role === 'admin') return true;
 
-    const allowedAudiences = audienceMap[user.role] || ['all'];
-    const audiences = announcement.targetAudience || [];
-
-    // If no specific audience is set, it defaults to visible to all
+    const audiences = (announcement.targetAudience || []).map((a) => String(a).toLowerCase());
     if (!audiences.length) return true;
 
-    return audiences.some((audience) =>
-        allowedAudiences.includes(String(audience).toLowerCase())
-    );
+    const roleAudience = ROLE_TO_AUDIENCE[user.role];
+
+    // If announcement explicitly targets user's role (e.g. 'students' for student)
+    if (roleAudience && audiences.includes(roleAudience)) {
+        return true;
+    }
+
+    // If announcement targets 'all', it is visible as long as it does not target OTHER roles exclusively
+    if (audiences.includes('all')) {
+        const otherRoles = ALL_SPECIFIC_ROLES.filter((r) => r !== roleAudience);
+        const targetsOtherRoles = audiences.some((r) => otherRoles.includes(r));
+        if (!targetsOtherRoles) {
+            return true;
+        }
+    }
+
+    return false;
 };
 
 /**
@@ -45,6 +58,8 @@ const serializeAnnouncement = (announcement) => {
         category: plain.category || [],
         severity: plain.severity || [],
         targetAudience: plain.targetAudience || [],
+        attachments: Array.isArray(plain.attachments) ? plain.attachments : [],
+        createdBy: plain.createdBy ? String(plain.createdBy) : null,
         createdAt: plain.createdAt || null,
         updatedAt: plain.updatedAt || null,
     };
@@ -60,10 +75,35 @@ export const getMyAnnouncements = async (req, res, next) => {
         const { search, category, severity, page, limit } = req.query;
         const filter = {};
 
-        // Restrict to user's permitted target audience
+        // Restrict to user's permitted target audience (or announcements created by this user)
         if (req.user?.role !== 'admin') {
-            const allowedAudiences = audienceMap[req.user?.role] || ['all'];
-            filter.targetAudience = { $in: allowedAudiences };
+            const roleAudience = ROLE_TO_AUDIENCE[req.user?.role];
+            let audienceCondition;
+            if (roleAudience) {
+                const otherRoles = ALL_SPECIFIC_ROLES.filter((r) => r !== roleAudience);
+                audienceCondition = {
+                    $or: [
+                        { targetAudience: roleAudience },
+                        {
+                            $and: [
+                                { targetAudience: 'all' },
+                                { targetAudience: { $nin: otherRoles } }
+                            ]
+                        }
+                    ]
+                };
+            } else {
+                audienceCondition = { targetAudience: 'all' };
+            }
+
+            if (req.user?._id) {
+                filter.$or = [
+                    audienceCondition,
+                    { createdBy: req.user._id }
+                ];
+            } else {
+                Object.assign(filter, audienceCondition);
+            }
         }
 
         if (category) {

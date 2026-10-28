@@ -92,18 +92,13 @@ const resolveCourseForClass = async (courseId, classItem, teacherId) => {
     throw error;
   }
 
-  const classCourseIds = (classItem.courses || []).map((id) => id.toString());
-  const belongsToClass =
-    classCourseIds.includes(String(course._id)) ||
-    String(course.courseClass || '') === String(classItem._id);
-
   const teachesCourse = (course.courseTeachers || []).some(
     (id) => String(id) === String(teacherId)
   );
 
-  if (!belongsToClass || !teachesCourse) {
-    const error = new Error('This course is not available for the selected class.');
-    error.statusCode = 400;
+  if (!teachesCourse) {
+    const error = new Error('You are not assigned to teach this subject/course.');
+    error.statusCode = 403;
     throw error;
   }
 
@@ -240,13 +235,16 @@ const createHomework = async (req, res, next) => {
     const uploaded = await uploadFileList(req.files || [], 'homeworks');
     uploadedUrls.push(...uploaded);
 
-    const materials = [...payload.keptMaterials, ...uploaded].slice(
+    const materials = [...(payload.materials || payload.keptMaterials || []), ...uploaded].slice(
       0,
       MAX_MATERIALS
     );
 
     const homework = await HomeworkModel.create({
-      class: payload.class,
+      title: payload.title,
+      subject: payload.subject,
+      course: payload.courseId,
+      class: payload.classId || payload.class,
       teacher: req.teacher._id,
       dueDate: payload.dueDate,
       instructions: payload.instructions,

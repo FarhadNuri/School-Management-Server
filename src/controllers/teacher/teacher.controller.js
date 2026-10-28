@@ -1,3 +1,4 @@
+import CourseModel from '../../models/course.model.js';
 import mongoose from 'mongoose';
 import ClassModel from '../../models/class.model.js';
 import StudentModel from '../../models/student.model.js';
@@ -310,6 +311,34 @@ export const getTeacherGuardianById = async (req, res, next) => {
     }
 
     res.json({ guardian });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    next(error);
+  }
+};
+/**
+ * GET /courses
+ * Returns all courses/subjects assigned to the authenticated teacher.
+ */
+export const getTeacherCourses = async (req, res, next) => {
+  try {
+    const teacherId = req.teacher._id;
+
+    const courses = await CourseModel.find({
+      courseTeachers: teacherId,
+      courseStatus: { $ne: 'Inactive' },
+    })
+      .select('courseName courseCode courseType courseStatus courseClass')
+      .populate('courseClass', 'className classCode grade academicYear')
+      .sort({ courseCode: 1, courseName: 1 })
+      .lean();
+
+    res.json({
+      count: courses.length,
+      courses,
+    });
   } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ message: error.message });

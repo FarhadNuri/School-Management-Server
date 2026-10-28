@@ -223,14 +223,34 @@ const normalizeFreeText = (value, maxLength = 50) => {
     return String(value).trim().slice(0, maxLength);
 };
 
+const STATUS_LABELS = {
+    pending: 'Open',
+    under_review: 'Under review',
+    in_progress: 'Under review',
+    resolved: 'Resolved',
+};
+
+const getStatusValue = (status) => {
+    if (Array.isArray(status)) return status[0] || 'pending';
+    return status || 'pending';
+};
+
 const serializeComplaint = (complaint, peopleMap) => {
     const plain =
         typeof complaint.toObject === 'function'
             ? complaint.toObject()
             : { ...complaint };
 
+    const statusVal = getStatusValue(plain.status);
+    const statusLabel = STATUS_LABELS[statusVal] || 'Open';
+
     return {
         ...plain,
+        statusLabel,
+        'status label': statusLabel,
+        resolvedAt: plain.resolvedAt || null,
+        resolutionNote: plain.resolutionNote || plain.resolutionNotes || '',
+        statusHistory: plain.statusHistory || [],
         reporter: mapPerson(plain.reporter, peopleMap),
         reportedParty: normalizeFreeText(plain.reportedParty, 50),
         witnesses: normalizeFreeText(plain.witnesses, 200),
