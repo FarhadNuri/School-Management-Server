@@ -1,3 +1,4 @@
+import { uploadFileList, deleteFromCloudinaryMany } from '../../middleware/multer.middleware.js';
 import mongoose from "mongoose";
 import Announcement from '../../models/announcement.model.js'
 
@@ -29,7 +30,7 @@ const addAnnouncement = async (req, res, next) => {
 
     const categories = toEnumArray(category, CATEGORIES);
     const severities = toEnumArray(severity, SEVERITIES);
-    const audiences = toEnumArray(targetAudience, TARGET_AUDIENCES);
+    let audiences = toEnumArray(targetAudience, TARGET_AUDIENCES);
 
     if (!categories.length) {
       return res.status(400).json({ message: 'Valid category is required' });
@@ -41,6 +42,11 @@ const addAnnouncement = async (req, res, next) => {
 
     if (!audiences.length) {
       return res.status(400).json({ message: 'Valid target audience is required' });
+    }
+
+    // If specific target audiences were chosen, exclude 'all'
+    if (audiences.length > 1 && audiences.includes('all')) {
+      audiences = audiences.filter((item) => item !== 'all');
     }
 
     const announcement = await Announcement.create({
@@ -126,7 +132,25 @@ const getAnnouncementById = async (req, res, next) => {
 const updateAnnouncement = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const announcement = await Announcement.findByIdAndUpdate(id, req.body, {
+    const updates = { ...req.body };
+
+    if (updates.targetAudience !== undefined) {
+      let audiences = toEnumArray(updates.targetAudience, TARGET_AUDIENCES);
+      if (audiences.length > 1 && audiences.includes('all')) {
+        audiences = audiences.filter((item) => item !== 'all');
+      }
+      updates.targetAudience = audiences;
+    }
+
+    if (updates.category !== undefined) {
+      updates.category = toEnumArray(updates.category, CATEGORIES);
+    }
+
+    if (updates.severity !== undefined) {
+      updates.severity = toEnumArray(updates.severity, SEVERITIES);
+    }
+
+    const announcement = await Announcement.findByIdAndUpdate(id, updates, {
       new: true
     });
     res.status(200).json(announcement);
@@ -135,3 +159,27 @@ const updateAnnouncement = async (req, res, next) => {
   }
 };
 export {addAnnouncement, getAnnouncements, getAnnouncementById, updateAnnouncement}
+
+export const deleteAnnouncement = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const announcement = await Announcement.findById(id);
+    if (!announcement) {
+      return res.status(404).json({ success: false, message: 'Announcement not found' });
+    }
+
+    if (announcement.attachments && announcement.attachments.length) {
+      try {
+        await deleteFromCloudinaryMany(announcement.attachments);
+      } catch (e) {
+        console.error('Error deleting announcement attachments from cloudinary:', e);
+      }
+    }
+
+    await Announcement.findByIdAndDelete(id);
+    return res.status(200).json({ success: true, message: 'Announcement deleted successfully' });
+  } catch (error) {
+    console.error('Error in deleteAnnouncement:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
