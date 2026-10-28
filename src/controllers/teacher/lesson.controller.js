@@ -1,4 +1,4 @@
-import LessonModel from "../../models/lesson.model.js";
+﻿import LessonModel from "../../models/lesson.model.js";
 import ClassModel from "../../models/class.model.js";
 import CourseModel from "../../models/course.model.js";
 import {
@@ -93,18 +93,13 @@ const resolveCourseForClass = async (courseId, classItem, teacherId) => {
     throw error;
   }
 
-  const classCourseIds = (classItem.courses || []).map((id) => id.toString());
-  const belongsToClass =
-    classCourseIds.includes(String(course._id)) ||
-    String(course.courseClass || '') === String(classItem._id);
-
   const teachesCourse = (course.courseTeachers || []).some(
     (id) => String(id) === String(teacherId)
   );
 
-  if (!belongsToClass || !teachesCourse) {
-    const error = new Error('This course is not available for the selected class.');
-    error.statusCode = 400;
+  if (!teachesCourse) {
+    const error = new Error('You are not assigned to teach this subject/course.');
+    error.statusCode = 403;
     throw error;
   }
 
@@ -135,21 +130,15 @@ const parseLessonInput = async (
     throw error;
   }
 
-  if (!scheduledAt) {
-    const error = new Error('Scheduled date and time is required');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const scheduled = new Date(scheduledAt);
+  const scheduled = scheduledAt ? new Date(scheduledAt) : new Date();
   if (Number.isNaN(scheduled.getTime())) {
     const error = new Error('Invalid scheduled date/time');
     error.statusCode = 400;
     throw error;
   }
 
-  const duration = Number(durationMinutes);
-  if (!durationMinutes || Number.isNaN(duration) || duration < 1 || duration > 480) {
+  const duration = durationMinutes ? Number(durationMinutes) : 45;
+  if (Number.isNaN(duration) || duration < 1 || duration > 480) {
     const error = new Error('Duration must be between 1 and 480 minutes');
     error.statusCode = 400;
     throw error;
@@ -162,13 +151,12 @@ const parseLessonInput = async (
 
   if (courseId) {
     course = await resolveCourseForClass(courseId, classItem, teacher._id);
-    subjectName = course.courseName;
+    subjectName = course.courseCode ? `${course.courseCode} - ${course.courseName}` : course.courseName;
   }
 
   if (!subjectName) {
-    const error = new Error('Subject name or valid course is required');
-    error.statusCode = 400;
-    throw error;
+    // If subject is omitted, default to class code or general
+    subjectName = classItem.className || 'General';
   }
 
   const parsedMaterials = toMaterialUrls(materials);
@@ -219,7 +207,7 @@ const createLesson = async (req, res, next) => {
       .lean();
 
     res.status(201).json({
-      message: 'Lesson created successfully',
+      message: 'Material uploaded successfully',
       lesson: serializeLesson(populated),
     });
   } catch (error) {
@@ -238,7 +226,7 @@ const updateLesson = async (req, res, next) => {
 
   try {
     const { id } = req.params;
-    assertValidObjectId(id, 'lesson ID');
+    assertValidObjectId(id, 'material ID');
 
     const existing = await LessonModel.findOne({
       _id: id,
@@ -247,7 +235,7 @@ const updateLesson = async (req, res, next) => {
     });
 
     if (!existing) {
-      return res.status(404).json({ message: 'Lesson not found' });
+      return res.status(404).json({ message: 'Material not found' });
     }
 
     const classId = req.body.classId || req.body.class || existing.class;
@@ -306,13 +294,47 @@ const updateLesson = async (req, res, next) => {
       .lean();
 
     res.json({
-      message: 'Lesson updated successfully',
+      message: 'Material updated successfully',
       lesson: serializeLesson(populated),
     });
   } catch (error) {
     if (uploadedUrls.length) {
       await deleteFromCloudinaryMany(uploadedUrls);
     }
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    next(error);
+  }
+};
+
+const deleteLesson = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    assertValidObjectId(id, 'material ID');
+
+    const existing = await LessonModel.findOne({
+      _id: id,
+      teacher: req.teacher._id,
+      isActive: true,
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: 'Material not found' });
+    }
+
+    if (existing.materials && existing.materials.length > 0) {
+      await deleteFromCloudinaryMany(existing.materials);
+    }
+
+    existing.isActive = false;
+    await existing.save();
+
+    res.json({
+      message: 'Material deleted successfully',
+      id,
+    });
+  } catch (error) {
     if (error.statusCode) {
       return res.status(error.statusCode).json({ message: error.message });
     }
@@ -356,7 +378,7 @@ const getTeacherLessons = async (req, res, next) => {
 
     const lessons = await LessonModel.find(filter)
       .populate(lessonPopulate)
-      .sort({ scheduledAt: -1 })
+      .sort({ createdAt: -1, scheduledAt: -1 })
       .lean();
 
     const serialized = lessons.map(serializeLesson);
@@ -376,7 +398,7 @@ const getTeacherLessons = async (req, res, next) => {
 const getTeacherLessonById = async (req, res, next) => {
   try {
     const { id } = req.params;
-    assertValidObjectId(id, 'lesson ID');
+    assertValidObjectId(id, 'material ID');
 
     const lesson = await LessonModel.findOne({
       _id: id,
@@ -387,7 +409,7 @@ const getTeacherLessonById = async (req, res, next) => {
       .lean();
 
     if (!lesson) {
-      return res.status(404).json({ message: 'Lesson not found' });
+      return res.status(404).json({ message: 'Material not found' });
     }
 
     res.json({
@@ -404,6 +426,7 @@ const getTeacherLessonById = async (req, res, next) => {
 export {
   createLesson,
   updateLesson,
+  deleteLesson,
   getTeacherLessons,
   getTeacherLessonById,
 };
