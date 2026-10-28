@@ -30,7 +30,7 @@ const complaintSchema = new Schema(
     status: [
       {
         type: String,
-        enum: ['pending', 'in_progress', 'resolved'],
+        enum: ['pending', 'in_progress', 'under_review', 'resolved'],
         default: 'pending',
       },
     ],
@@ -53,6 +53,26 @@ const complaintSchema = new Schema(
     dateResolved: { type: Date, required: false },
     resolutionNotes: { type: String, trim: true, default: '' },
     resolutionDate: { type: Date, required: false },
+
+    // Status management & audit trail fields
+    resolvedAt: { type: Date, default: null },
+    resolvedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+    resolutionNote: {
+      type: String,
+      trim: true,
+      default: '',
+      maxlength: [500, 'Resolution note cannot exceed 500 characters'],
+    },
+    reviewedAt: { type: Date, default: null },
+    statusHistory: [
+      {
+        status: { type: String, required: true },
+        changedBy: { type: Schema.Types.ObjectId, ref: 'Admin', default: null },
+        changedAt: { type: Date, default: Date.now },
+        note: { type: String, trim: true, default: '' },
+      },
+    ],
+    isDeleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
