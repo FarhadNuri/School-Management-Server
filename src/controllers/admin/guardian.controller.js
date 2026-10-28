@@ -254,7 +254,7 @@ export const updateGuardian = async (req, res, next) => {
             urlsToDelete.push(guardian.identification?.front || guardian.idPhoto);
         }
         if (
-            (uploaded.idBack || nextIdType === 'Passport') &&
+            (uploaded.idBack || (nextIdType === 'Passport' || nextIdType === 'Birth Certificate')) &&
             guardian.identification?.back
         ) {
             urlsToDelete.push(guardian.identification.back);
@@ -383,5 +383,67 @@ export const addGuardian = async (req, res, next) => {
     }
     await deleteFromCloudinaryMany(uploadedUrls);
     next(error);
+  }
+};
+
+import StudentModel from '../../models/student.model.js';
+
+export const deleteGuardian = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const guardian = await Guardian.findById(id);
+    if (!guardian) {
+      return res.status(404).json({ success: false, message: 'Guardian not found' });
+    }
+
+    const userId = guardian.user;
+
+    // Cloudinary cleanup
+    if (guardian.identification?.front) {
+      try {
+        const publicId = getPublicIdFromUrl(guardian.identification.front);
+        if (publicId) await deleteImageFromCloudinary(publicId);
+      } catch (e) {}
+    }
+    if (guardian.identification?.back) {
+      try {
+        const publicId = getPublicIdFromUrl(guardian.identification.back);
+        if (publicId) await deleteImageFromCloudinary(publicId);
+      } catch (e) {}
+    }
+    if (guardian.idPhoto) {
+      try {
+        const publicId = getPublicIdFromUrl(guardian.idPhoto);
+        if (publicId) await deleteImageFromCloudinary(publicId);
+      } catch (e) {}
+    }
+
+    if (userId) {
+      const user = await User.findById(userId);
+      if (user?.photo) {
+        try {
+          const publicId = getPublicIdFromUrl(user.photo);
+          if (publicId) await deleteImageFromCloudinary(publicId);
+        } catch (e) {}
+      }
+      await User.findByIdAndDelete(userId);
+    }
+
+    // Unset guardian from students who reference this guardian
+    try {
+      const StudentRef = typeof StudentModel !== 'undefined' ? StudentModel : (typeof Student !== 'undefined' ? Student : null);
+      if (StudentRef) {
+        await StudentRef.updateMany({ guardian: id }, { $unset: { guardian: "" } });
+      }
+    } catch (e) {
+      console.error('Error unsetting guardian from student:', e);
+    }
+
+    await Guardian.findByIdAndDelete(id);
+
+    return res.status(200).json({ success: true, message: 'Guardian deleted successfully' });
+  } catch (error) {
+    console.error('Error in deleteGuardian:', error);
+    return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
   }
 };
