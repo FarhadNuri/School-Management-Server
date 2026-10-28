@@ -1,75 +1,64 @@
+import nodemailer from 'nodemailer';
 import {
-    MAILTRAP_TOKEN,
+    MAILTRAP_HOST,
+    MAILTRAP_PORT,
+    MAILTRAP_USERNAME,
     MAILTRAP_PASSWORD,
 } from '../config/env.js';
 
-const MAILTRAP_SEND_URL = 'https://send.api.mailtrap.io/api/send';
-const SEND_TIMEOUT_MS = 15000;
-
 class EmailSender {
-    // Returns the Mailtrap API token from env. Used by sendEmail.
-    getToken() {
-        return MAILTRAP_TOKEN || MAILTRAP_PASSWORD;
+    constructor() {
+        this.transporter = null;
     }
 
-    // Sends one email through Mailtrap. Used for account credentials,
-    // invoices, and payment receipts.
+    getTransporter() {
+        if (!this.transporter) {
+            const emailUser = (process.env.EMAIL_USER || '').trim();
+            const emailPass = (process.env.EMAIL_PASS || '').replace(/\s+/g, '').trim();
+
+            if (emailUser && emailPass) {
+                this.transporter = nodemailer.createTransport({
+                    service: process.env.EMAIL_SERVICE || 'gmail',
+                    auth: {
+                        user: emailUser,
+                        pass: emailPass,
+                    },
+                });
+            } else {
+                this.transporter = nodemailer.createTransport({
+                    host: MAILTRAP_HOST || process.env.MAILTRAP_HOST || 'sandbox.smtp.mailtrap.io',
+                    port: Number(MAILTRAP_PORT || process.env.MAILTRAP_PORT || 2525),
+                    auth: {
+                        user: MAILTRAP_USERNAME || process.env.MAILTRAP_USERNAME,
+                        pass: MAILTRAP_PASSWORD || process.env.MAILTRAP_PASSWORD,
+                    },
+                });
+            }
+        }
+        return this.transporter;
+    }
+
     async sendEmail({ to, subject, html, text, from }) {
         if (!to || !subject || (!html && !text)) {
             throw new Error('to, subject, and html or text are required');
         }
 
-        const token = this.getToken();
-        if (!token) {
-            throw new Error(
-                'Mailtrap is not configured (set MAILTRAP_TOKEN or MAILTRAP_PASSWORD)'
-            );
-        }
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), SEND_TIMEOUT_MS);
+        const transporter = this.getTransporter();
+        const fromEmail = from?.email || process.env.EMAIL_USER || process.env.MAILTRAP_FROM_EMAIL || 'farhadnuri559@gmail.com';
+        const rawName = process.env.EMAIL_FROM_NAME || 'School Management';
+        const fromName = from?.name || rawName.replace(/^["']|["']$/g, '');
 
-        const fromEmail = from?.email || process.env.MAILTRAP_FROM_EMAIL || "farhadnuri559@gmail.com";
-        const fromName = from?.name || process.env.MAILTRAP_FROM_NAME || "School Web App";
+        const mailOptions = {
+            from: `"${fromName}" <${fromEmail}>`,
+            to,
+            subject,
+            ...(text && { text }),
+            ...(html && { html }),
+        };
 
-        try {
-            const response = await fetch(MAILTRAP_SEND_URL, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'school-webapp-api',
-                },
-                body: JSON.stringify({
-                    from: {
-                        email: fromEmail,
-                        name: fromName,
-                    },
-                    to: [{ email: to }],
-
-                    subject,
-                    ...(text && { text }),
-                    ...(html && { html }),
-                }),
-                signal: controller.signal,
-            })
-            const body = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const detail =
-                    body?.errors?.join(', ') ||
-                    body?.message ||
-                    JSON.stringify(body) ||
-                    response.statusText;
-                throw new Error(`Mailtrap API ${response.status}: ${detail}`);
-            }
-            return body;
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                throw new Error(`Mailtrap API timed out after ${SEND_TIMEOUT_MS}ms`);
-            }
-            throw error;
-        } finally {
-            clearTimeout(timer);
-        }
+        const info = await transporter.sendMail(mailOptions);
+        console.log(`✉️ Real email successfully delivered to ${to} (MessageId: ${info.messageId})`);
+        return info;
     }
 }
 
