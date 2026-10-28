@@ -119,6 +119,7 @@ const serializePayment = (payment) => {
     academicYear: payment.academicYear || '',
     dueDate: payment.dueDate || null,
     paidAt: payment.paidDate || null,
+    paidDate: payment.paidDate || null,
     notes: payment.notes || '',
     receiptNumber: payment.transactionId || null,
     receiptUrl: payment.receiptUrl || payment.stripeInvoicePdf || '',
