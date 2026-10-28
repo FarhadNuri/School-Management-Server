@@ -1,3 +1,4 @@
+import { getMyGrades } from '../controllers/user/grade.controller.js';
 import { Router } from 'express';
 import { loginUser, getMe, changePassword } from '../controllers/user.controller.js';
 import { protectUser } from '../middleware/user.middleware.js';
@@ -9,7 +10,7 @@ import { getMyCourses, getMyLessons, getMyLessonById } from '../controllers/user
 import { getMyStudents, getMyStudentById } from '../controllers/user/student.controller.js';
 import { getMyAnnouncements, getMyAnnouncementById } from '../controllers/user/announcement.controller.js';
 import { getMyAttendance, getMyAttendanceSummary, getMyAttendanceWards, getMyLessonAttendance } from '../controllers/user/attendance.controller.js';
-import { getMyPayments, confirmCheckoutSession, getMyPaymentById, checkoutPayment } from '../controllers/user/payment.controller.js';
+import { getMyPayments, confirmCheckoutSession, getMyPaymentById, checkoutPayment, syncMyPayment } from '../controllers/user/payment.controller.js';
 import { getMyDashboard } from '../controllers/user/dashboard.controller.js';
 
 
@@ -27,6 +28,8 @@ router.patch('/complaint/:id', protectUser, handleComplaintUpload, updateComplai
 
 
 router.get('/courses', protectUser, getMyCourses);
+router.get('/materials', protectUser, getMyLessons);
+router.get('/materials/:id', protectUser, getMyLessonById);
 router.get('/lessons', protectUser, getMyLessons);
 router.get('/lessons/:id', protectUser, getMyLessonById);
 
@@ -36,8 +39,8 @@ router.get('/homeworks/:id', protectUser, getMyHomeworkById);
 router.get('/exams', protectUser, getMyExams);
 router.get('/exams/:id', protectUser, getMyExamById);
 
-router.get('/students', protectUser, getMyStudents)
-router.get('/students', protectUser, getMyStudentById)
+router.get('/students', protectUser, getMyStudents);
+router.get('/students/:id', protectUser, getMyStudentById);
 
 
 router.get('/announcements', protectUser, getMyAnnouncements);
@@ -52,9 +55,12 @@ router.get('/payments', protectUser, getMyPayments);
 router.get('/payments/checkout-session/:sessionId', protectUser, confirmCheckoutSession);
 router.get('/payments/:id', protectUser, getMyPaymentById);
 router.post('/payments/:id/checkout', protectUser, checkoutPayment);
+router.post('/payments/:id/sync', protectUser, syncMyPayment);
 
 router.get('/dashboard', protectUser, getMyDashboard);
 
 
+
+router.get('/grades', protectUser, getMyGrades);
 
 export default router;
