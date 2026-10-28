@@ -6,6 +6,8 @@ const announcementSchema = new Schema({
     category: [{ type: String, enum: ['general', 'academic', 'disciplinary', 'other'] }],
     severity: [{ type: String, enum: ['low', 'medium', 'high'] }],
     targetAudience: [{ type: String, enum: ['all', 'students', 'teachers', 'guardians', 'other'] }],
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    attachments: [{ type: String }],
 }, { timestamps: true });
 
 
