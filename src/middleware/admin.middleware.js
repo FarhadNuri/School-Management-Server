@@ -5,9 +5,9 @@ import ENV from "../config/env.js"
 
 const admminProtector = async (req,res,next) => {
     try{
-        const authHeader = req.headers.authorizatrion;
-        if(!authHeader || !authHeader.starsWith('Bearer')) {
-            return res.status(401).json({message: 'Not authrized. No token provided.'})
+        const authHeader = req.headers.authorization;
+        if(!authHeader || !authHeader.startsWith('Bearer')) {
+            return res.status(401).json({message: 'Not authorized. No token provided.'})
         }
         const token = authHeader.split(' ')[1];
         if(!token) {
