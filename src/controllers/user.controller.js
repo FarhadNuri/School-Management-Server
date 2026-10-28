@@ -1,19 +1,45 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { UserModel } from '../models/user.model.js';
+import StudentModel from '../models/student.model.js';
+import '../models/class.model.js';
 import ENV from '../config/env.js';
 
-const serializeUser = (user) => ({
-  id: user._id,
-  firstName: user.firstName,
-  lastName: user.lastName,
-  email: user.email,
-  photo: user.photo,
-  role: user.role,
-  isActive: user.isActive,
-  createdAt: user.createdAt,
-  updatedAt: user.updatedAt,
-});
+const serializeUser = async (user) => {
+  const base = {
+    id: user._id,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User',
+    email: user.email,
+    photo: user.photo,
+    role: user.role,
+    isActive: user.isActive,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+
+  if (user.role === 'student') {
+    try {
+      const student = await StudentModel.findOne({ user: user._id })
+        .populate('class', 'className classCode grade academicYear')
+        .lean();
+      if (student) {
+        base.studentId = student._id;
+        base.classId = student.class?._id || null;
+        base.className = student.class?.className || '';
+        base.classCode = student.class?.classCode || '';
+        base.grade = student.class?.grade || null;
+        base.classGrade = student.class?.className || (student.class?.grade ? `Grade ${student.class.grade}` : '');
+        base.class = student.class || null;
+      }
+    } catch (e) {
+      console.error('Error populating student profile:', e.message);
+    }
+  }
+
+  return base;
+};
 
 export const loginUser = async (req, res, next) => {
   try {
@@ -47,10 +73,12 @@ export const loginUser = async (req, res, next) => {
       expiresIn: ENV.JWT_EXPIRES_IN,
     });
 
+    const serialized = await serializeUser(user);
+
     res.json({
       message: 'Login successful',
       token,
-      user: serializeUser(user),
+      user: serialized,
     });
   } catch (error) {
     next(error);
@@ -59,7 +87,8 @@ export const loginUser = async (req, res, next) => {
 
 export const getMe = async (req, res, next) => {
   try {
-    res.json({ user: serializeUser(req.user) });
+    const serialized = await serializeUser(req.user);
+    res.json({ user: serialized });
   } catch (error) {
     next(error);
   }
