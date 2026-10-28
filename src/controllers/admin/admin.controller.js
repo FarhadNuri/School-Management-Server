@@ -1,13 +1,15 @@
 import Admin from "../../models/admin.model.js";
 import ENV from "../../config/env.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken"
+import jwt from "jsonwebtoken";
+import { uploadFiles, deleteFromCloudinaryMany } from "../../middleware/multer.middleware.js";
 
 const serializeAdmin = (admin) => {
   return {
     id: admin._id,
     firstName: admin.firstName,
     lastName: admin.lastName,
+    photo: admin.photo || "",
     email: admin.email,
     role: admin.role,
     isActive: admin.isActive,
