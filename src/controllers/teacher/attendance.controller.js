@@ -186,7 +186,7 @@ const getTeacherAttendanceSections = async (req, res, next) => {
             .select('className classCode grade academicYear students courses coverImage description')
             .populate({
                 path: 'courses',
-                select: 'courseName courseCode',
+                select: 'courseName courseCode courseTeachers',
             })
             .lean();
 
@@ -203,6 +203,13 @@ const getTeacherAttendanceSections = async (req, res, next) => {
                 .map((c) => c?.courseName)
                 .filter(Boolean);
 
+            const teacherIdStr = String(teacherId);
+            const myAssignedCourses = (cls.courses || []).filter((co) =>
+                (co.courseTeachers || []).some((tId) => String(tId) === teacherIdStr)
+            );
+            const mySubject = myAssignedCourses.map((ac) => ac.courseName).join(', ') || '';
+            const myCourseCode = myAssignedCourses.map((ac) => ac.courseCode).join(', ') || '';
+
             sections.push({
                 _id: idStr,
                 id: idStr,
@@ -212,6 +219,9 @@ const getTeacherAttendanceSections = async (req, res, next) => {
                 academicYear: cls.academicYear,
                 studentCount: (cls.students || []).length,
                 courses: courseNames,
+                mySubject,
+                myCourseCode,
+                myCourses: myAssignedCourses,
                 coverImage: cls.coverImage || '',
                 description: cls.description || '',
             });
