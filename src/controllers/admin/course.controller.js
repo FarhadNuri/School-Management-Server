@@ -126,7 +126,7 @@ const getCourses = async (req, res, next) => {
         }
 
         const courses = await Course.find(filter)
-            .populate('courseClass', 'className classCode')
+            .populate('courseClass', 'className classCode grade academicYear isActive')
             .populate({
                 path: 'courseTeachers',
                 populate: {
@@ -288,17 +288,10 @@ const updateCourse = async (req, res, next) => {
 
         await course.save();
 
-        if (previousClassId !== nextClassIdStr) {
-            if (previousClassId) {
-                await Class.findByIdAndUpdate(previousClassId, {
-                    $pull: { courses: course._id },
-                });
-            }
-            if (nextClassId) {
-                await Class.findByIdAndUpdate(nextClassId, {
-                    $addToSet: { courses: course._id },
-                });
-            }
+        if (nextClassId) {
+            await Class.findByIdAndUpdate(nextClassId, {
+                $addToSet: { courses: course._id },
+            });
         }
         const populated = await Course.findById(course._id)
             .populate('courseClass', 'className classCode grade academicYear isActive')

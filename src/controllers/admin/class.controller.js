@@ -55,10 +55,9 @@ const resolveCourseIds = async (courses) => {
     return courseIds.map((id) => byId.get(id)).filter(Boolean);
 };
 
-// Keep Class.courses and Course.courseClass in sync after addClass / updateClass.
-// Diffs previous vs next course IDs: unlinks removed courses (courseClass = null),
-// and for newly added ones, pulls them off any other class first so a course
-// belongs to only one class, then sets courseClass to this class.
+// Keep Course.courseClass pointing to an active assigned class.
+// Multiple classes/sections (e.g. Class 8 A and Class 8 B) can share the same curriculum courses.
+// Courses should NEVER be pulled or unassigned from other classes!
 const syncClassCourses = async (classId, previousCourseIds, nextCourses) => {
     const previousIds = previousCourseIds.map((id) => id.toString());
     const nextIds = nextCourses.map((course) => course._id.toString());
@@ -71,32 +70,33 @@ const syncClassCourses = async (classId, previousCourseIds, nextCourses) => {
     );
 
     if (removedIds.length) {
-        await Course.updateMany(
-            { _id: { $in: removedIds }, courseClass: classId },
-            { $set: { courseClass: null } }
-        );
+        for (const removedId of removedIds) {
+            const course = await Course.findById(removedId).select('courseClass');
+            if (course && course.courseClass && course.courseClass.toString() === classId.toString()) {
+                const otherClass = await Class.findOne({
+                    _id: { $ne: classId },
+                    courses: removedId,
+                }).select('_id');
+
+                await Course.findByIdAndUpdate(removedId, {
+                    courseClass: otherClass ? otherClass._id : null,
+                });
+            }
+        }
     }
 
     if (addedCourses.length) {
-        const pullUpdates = addedCourses
-            .filter(
-                (course) =>
-                    course.courseClass && course.courseClass.toString() !== classId.toString()
-            )
-            .map((course) =>
-                Class.findByIdAndUpdate(course.courseClass, {
-                    $pull: { courses: course._id },
-                })
+        // Ensure added courses have courseClass populated without pulling from other classes
+        const unlinkedCourseIds = addedCourses
+            .filter((c) => !c.courseClass)
+            .map((c) => c._id);
+
+        if (unlinkedCourseIds.length) {
+            await Course.updateMany(
+                { _id: { $in: unlinkedCourseIds } },
+                { $set: { courseClass: classId } }
             );
-
-        if (pullUpdates.length) {
-            await Promise.all(pullUpdates);
         }
-
-        await Course.updateMany(
-            { _id: { $in: addedCourses.map((course) => course._id) } },
-            { $set: { courseClass: classId } }
-        );
     }
 };
 
