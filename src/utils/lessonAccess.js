@@ -238,69 +238,149 @@ const buildLessonVisibilityQuery = (context) => {
     return query;
 };
 
-const getAccessibleCourses = async (context) => {
-    const courseMap = new Map();
+const getAccessibleCourses = async (context, options = {}) => {
+    const courseList = [];
+    const seen = new Set();
+    let targetClassIds = [...(context.classIds || [])];
 
-    if (context.classIds.length) {
+    // For teachers: Show ALL curriculum subjects for Class 6, 7, 8 (matching admin catalog)
+    if (context.role === "teacher") {
+        const courses = await CourseModel.find({
+            courseStatus: "Active",
+        })
+            .populate("courseClass", "className classCode grade academicYear isActive")
+            .populate({
+                path: "courseTeachers",
+                populate: {
+                    path: "user",
+                    select: "firstName lastName email photo",
+                },
+            })
+            .populate("courseStudents", "_id")
+            .sort({ courseCode: 1 })
+            .lean();
+
+        for (const course of courses) {
+            if (!course || !course._id) continue;
+            const id = String(course._id);
+            if (seen.has(id)) continue;
+            seen.add(id);
+
+            const teacherNames = (course.courseTeachers || [])
+                .map((t) => (t.user ? ((t.user.firstName || "") + " " + (t.user.lastName || "")).trim() : "Teacher"))
+                .filter(Boolean)
+                .join(", ");
+
+            const classItem = course.courseClass || {};
+            const gradeStr = classItem.grade != null ? "Class " + classItem.grade : "";
+
+            courseList.push({
+                id,
+                _id: course._id,
+                name: course.courseName,
+                courseName: course.courseName,
+                code: course.courseCode,
+                courseCode: course.courseCode,
+                shortCode: course.courseName.replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase() || "CRS",
+                type: course.courseType || "Core",
+                courseType: course.courseType || "Core",
+                status: course.courseStatus || "Active",
+                courseStatus: course.courseStatus || "Active",
+                isActive: course.courseStatus === "Active",
+                description: course.courseDescription || "",
+                courseDescription: course.courseDescription || "",
+                coverImage: course.coverImage || null,
+                image: course.coverImage || null,
+                class: classItem.className || "",
+                className: classItem.className || "",
+                classCode: classItem.classCode || "",
+                classId: classItem._id ? String(classItem._id) : "",
+                grade: gradeStr,
+                teacher: teacherNames || "No teacher assigned",
+                teachers: course.courseTeachers || [],
+                enrolled: String((course.courseStudents || []).length),
+            });
+        }
+        return courseList;
+    }
+
+    if (options.studentId) {
+        const student = await StudentModel.findById(options.studentId).select("class").lean();
+        if (student && student.class && targetClassIds.includes(String(student.class))) {
+            targetClassIds = [String(student.class)];
+        }
+    } else if (options.classId) {
+        if (targetClassIds.includes(String(options.classId))) {
+            targetClassIds = [String(options.classId)];
+        }
+    }
+
+    if (targetClassIds.length) {
         const classes = await ClassModel.find({
-            _id: { $in: context.classIds },
+            _id: { $in: targetClassIds },
             isActive: true,
         })
-            .select('className classCode courses')
+            .select("className classCode grade courses")
             .populate({
-                path: 'courses',
-                match: { courseStatus: 'Active' },
-                select: 'courseName courseCode courseType courseStatus courseClass',
+                path: "courses",
+                match: { courseStatus: "Active" },
+                select: "courseName courseCode courseType courseStatus courseClass coverImage courseDescription courseTeachers courseStudents",
+                populate: {
+                    path: "courseTeachers",
+                    populate: {
+                        path: "user",
+                        select: "firstName lastName email photo",
+                    },
+                },
             })
             .lean();
 
         for (const classItem of classes) {
             for (const course of classItem.courses || []) {
-                if (!course?._id) continue;
+                if (!course || !course._id) continue;
                 const id = String(course._id);
-                if (courseMap.has(id)) continue;
+                const key = id + "_" + String(classItem._id);
+                if (seen.has(key)) continue;
+                seen.add(key);
 
-                courseMap.set(id, {
+                const teacherNames = (course.courseTeachers || [])
+                    .map((t) => (t.user ? ((t.user.firstName || "") + " " + (t.user.lastName || "")).trim() : "Teacher"))
+                    .filter(Boolean)
+                    .join(", ");
+
+                const gradeStr = classItem.grade != null ? "Class " + classItem.grade : "";
+
+                courseList.push({
                     id,
                     _id: course._id,
+                    name: course.courseName,
                     courseName: course.courseName,
+                    code: course.courseCode,
                     courseCode: course.courseCode,
-                    courseType: course.courseType,
-                    classId: classItem._id,
+                    shortCode: course.courseName.replace(/[^a-zA-Z]/g, "").slice(0, 3).toUpperCase() || "CRS",
+                    type: course.courseType || "Core",
+                    courseType: course.courseType || "Core",
+                    status: course.courseStatus || "Active",
+                    courseStatus: course.courseStatus || "Active",
+                    isActive: course.courseStatus === "Active",
+                    description: course.courseDescription || "",
+                    courseDescription: course.courseDescription || "",
+                    coverImage: course.coverImage || null,
+                    image: course.coverImage || null,
+                    class: classItem.className,
                     className: classItem.className,
                     classCode: classItem.classCode,
+                    classId: String(classItem._id),
+                    grade: gradeStr,
+                    teacher: teacherNames || "No teacher assigned",
+                    teachers: course.courseTeachers || [],
+                    enrolled: String((course.courseStudents || []).length),
                 });
             }
         }
     }
 
-    if (context.teacherId) {
-        const teacherCourses = await CourseModel.find({
-            teachers: context.teacherId,
-            courseStatus: 'Active',
-        })
-            .select('courseName courseCode courseType courseStatus courseClass')
-            .lean();
-
-        for (const course of teacherCourses) {
-            if (!course?._id) continue;
-            const id = String(course._id);
-            if (courseMap.has(id)) continue;
-
-            courseMap.set(id, {
-                id,
-                _id: course._id,
-                courseName: course.courseName,
-                courseCode: course.courseCode,
-                courseType: course.courseType,
-                classId: course.courseClass,
-                className: '',
-                classCode: '',
-            });
-        }
-    }
-
-    return Array.from(courseMap.values());
+    return courseList;
 };
 
 const canAccessLesson = (lesson, context) => {
