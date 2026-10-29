@@ -36,6 +36,7 @@ app.use(cors({
 mountWebhooks(app);
 
 app.use(express.json())
+app.use(express.static('public'))
 
 app.use('/api/health',(req, res) => {
     res.status(200).json({
