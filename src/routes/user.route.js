@@ -1,12 +1,13 @@
+import { getMyRoutine } from '../controllers/user/routine.controller.js';
 import { getMyGrades } from '../controllers/user/grade.controller.js';
 import { Router } from 'express';
 import { loginUser, getMe, changePassword } from '../controllers/user.controller.js';
 import { protectUser } from '../middleware/user.middleware.js';
-import { handleComplaintUpload } from '../middleware/multer.middleware.js';
+import { handleComplaintUpload, handleHomeworkUpload } from '../middleware/multer.middleware.js';
 import { makeComplaint, getComplaints, getComplaintById, updateComplaint } from '../controllers/user/user.controller.js';
-import { getMyHomeworkById, getMyHomeworks } from '../controllers/user/homework.controller.js';
+import { getMyHomeworkById, getMyHomeworks, submitHomework } from '../controllers/user/homework.controller.js';
 import { getMyExams, getMyExamById } from '../controllers/user/exam.controller.js';
-import { getMyCourses, getMyLessons, getMyLessonById } from '../controllers/user/lesson.controller.js';
+import { getMyCourses, getMyCourseById, getMyLessons, getMyLessonById } from '../controllers/user/lesson.controller.js';
 import { getMyStudents, getMyStudentById } from '../controllers/user/student.controller.js';
 import { getMyAnnouncements, getMyAnnouncementById } from '../controllers/user/announcement.controller.js';
 import { getMyAttendance, getMyAttendanceSummary, getMyAttendanceWards, getMyLessonAttendance } from '../controllers/user/attendance.controller.js';
@@ -28,6 +29,7 @@ router.patch('/complaint/:id', protectUser, handleComplaintUpload, updateComplai
 
 
 router.get('/courses', protectUser, getMyCourses);
+router.get('/courses/:id', protectUser, getMyCourseById);
 router.get('/materials', protectUser, getMyLessons);
 router.get('/materials/:id', protectUser, getMyLessonById);
 router.get('/lessons', protectUser, getMyLessons);
@@ -36,6 +38,7 @@ router.get('/lessons/:id', protectUser, getMyLessonById);
 
 router.get('/homeworks', protectUser, getMyHomeworks);
 router.get('/homeworks/:id', protectUser, getMyHomeworkById);
+router.post('/homeworks/:id/submit', protectUser, handleHomeworkUpload, submitHomework);
 router.get('/exams', protectUser, getMyExams);
 router.get('/exams/:id', protectUser, getMyExamById);
 
@@ -62,5 +65,9 @@ router.get('/dashboard', protectUser, getMyDashboard);
 
 
 router.get('/grades', protectUser, getMyGrades);
+
+
+// ROUTINE ROUTE
+router.get('/routine', protectUser, getMyRoutine);
 
 export default router;
