@@ -1,3 +1,4 @@
+import { getHomeworkSubmissions } from '../controllers/user/homework.controller.js';
 import {
     getTeacherGradebooks,
     getTeacherGradebook,
@@ -79,6 +80,7 @@ router.delete('/lessons/:id', deleteLesson);
 router.get('/homeworks', getTeacherHomeworks);
 router.post('/homeworks', handleHomeworkUpload, createHomework);
 router.get('/homeworks/:id', getTeacherHomeworkById);
+router.get('/homeworks/:id/submissions', getHomeworkSubmissions);
 router.patch('/homeworks/:id', handleHomeworkUpload, updateHomework);
 
 router.get('/exams', getTeacherExams);

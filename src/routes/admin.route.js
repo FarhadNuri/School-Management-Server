@@ -1,4 +1,11 @@
 import {
+  getAdminRoutines,
+  getAdminRoutineById,
+  createAdminRoutine,
+  updateAdminRoutine,
+  deleteAdminRoutine
+} from '../controllers/admin/routine.controller.js';
+import {
   getAdminGradebooks,
   getAdminGradebookById,
   updateAdminGradebook,
@@ -96,6 +103,15 @@ router.patch('/payments/:id', updatePayment);
 router.post('/payments/:id/resend', resendInvoice);
 router.post('/payments/:id/cancel', cancelPayment);
 
+
+
+// ROUTINE ROUTES
+router.get('/routines', admminProtector, getAdminRoutines);
+router.get('/routines/:id', admminProtector, getAdminRoutineById);
+router.post('/routines', admminProtector, createAdminRoutine);
+router.put('/routines/:id', admminProtector, updateAdminRoutine);
+router.patch('/routines/:id', admminProtector, updateAdminRoutine);
+router.delete('/routines/:id', admminProtector, deleteAdminRoutine);
 
 export default router
 // Publish Grades / Gradebooks Management

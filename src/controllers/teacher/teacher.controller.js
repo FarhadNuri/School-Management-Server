@@ -31,7 +31,7 @@ const classPopulate = [
   },
   {
     path: 'courses',
-    select: 'courseName courseCode courseType courseStatus',
+    select: 'courseName courseCode courseType courseStatus courseTeachers',
   },
 ];
 
@@ -161,9 +161,25 @@ export const getTeacherClasses = async (req, res, next) => {
       .sort({ className: 1, grade: 1 })
       .lean();
 
+    const teacherIdStr = String(req.teacher?._id || req.teacher || '');
+    const enrichedClasses = classes.map((c) => {
+      const myAssignedCourses = (c.courses || []).filter((co) =>
+        (co.courseTeachers || []).some((tId) => String(tId) === teacherIdStr)
+      );
+      const mySubject = myAssignedCourses.map((ac) => ac.courseName).join(', ') || '';
+      const myCourseCode = myAssignedCourses.map((ac) => ac.courseCode).join(', ') || '';
+
+      return {
+        ...c,
+        myCourses: myAssignedCourses,
+        mySubject,
+        myCourseCode
+      };
+    });
+
     res.json({
-      count: classes.length,
-      classes,
+      count: enrichedClasses.length,
+      classes: enrichedClasses,
     });
   } catch (error) {
     if (error.statusCode) {
