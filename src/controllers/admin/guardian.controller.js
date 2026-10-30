@@ -360,6 +360,7 @@ export const addGuardian = async (req, res, next) => {
       password: plainPassword,
     });
 
+    let emailSent = true;
     try {
       await mailer.sendEmail({
         to: emailNormalized,
@@ -369,6 +370,7 @@ export const addGuardian = async (req, res, next) => {
       });
     } catch (mailError) {
       console.error('Guardian credentials email failed:', mailError.message);
+      emailSent = false;
     }
 
     const guardianData = await GuardianModel.findById(guardian._id).populate(populateUser);
@@ -376,6 +378,15 @@ export const addGuardian = async (req, res, next) => {
     res.status(201).json({
       message: 'Guardian created successfully',
       guardian: guardianData,
+      credentials: {
+        guardian: {
+          name: `${user.firstName} ${user.lastName}`.trim(),
+          email: emailNormalized,
+          password: plainPassword,
+          role: 'guardian',
+        },
+      },
+      emailSent,
     });
   } catch (error) {
     if (createdUserId) {
@@ -445,5 +456,55 @@ export const deleteGuardian = async (req, res) => {
   } catch (error) {
     console.error('Error in deleteGuardian:', error);
     return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
+
+
+export const resetGuardianPassword = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const guardian = await GuardianModel.findById(id).populate('user');
+    if (!guardian || !guardian.user) {
+      return res.status(404).json({ message: 'Guardian record or user account not found' });
+    }
+
+    const newPassword = generatePassword();
+    guardian.user.password = await bcrypt.hash(newPassword, 10);
+    await guardian.user.save();
+
+    const guardianName = `${guardian.user.firstName} ${guardian.user.lastName}`.trim();
+    const mail = guardianCredentialsEmail({
+      firstName: guardian.user.firstName,
+      email: guardian.user.email,
+      password: newPassword,
+    });
+
+    let emailSent = true;
+    try {
+      await mailer.sendEmail({
+        to: guardian.user.email,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+    } catch (err) {
+      console.warn('Guardian reset password email delivery warning:', err.message);
+      emailSent = false;
+    }
+
+    return res.status(200).json({
+      message: 'Guardian password reset successfully',
+      credentials: {
+        guardian: {
+          name: guardianName,
+          email: guardian.user.email,
+          password: newPassword,
+          role: 'guardian',
+        },
+      },
+      emailSent,
+    });
+  } catch (error) {
+    next(error);
   }
 };

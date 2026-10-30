@@ -269,6 +269,7 @@ export const addTeacher = async (req, res, next) => {
       password,
     });
 
+    let emailSent = true;
     try {
       await mailer.sendEmail({
         to: emailNormalized,
@@ -278,6 +279,7 @@ export const addTeacher = async (req, res, next) => {
       });
     } catch (mailError) {
       console.error('Teacher credentials email failed:', mailError.message);
+      emailSent = false;
     }
 
     const teacherData = await Teacher.findById(teacher._id).populate(teacherPopulate);
@@ -285,6 +287,15 @@ export const addTeacher = async (req, res, next) => {
     res.status(201).json({
       message: 'Teacher created successfully',
       teacher: teacherData,
+      credentials: {
+        teacher: {
+          name: `${user.firstName} ${user.lastName}`.trim(),
+          email: emailNormalized,
+          password,
+          role: 'teacher',
+        },
+      },
+      emailSent,
     });
   } catch (error) {
       console.error('Error creating teacher:', error.message);
@@ -727,5 +738,54 @@ export const deleteTeacher = async (req, res) => {
   } catch (error) {
     console.error('Error in deleteTeacher:', error);
     return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
+
+export const resetTeacherPassword = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const teacher = await Teacher.findById(id).populate('user');
+    if (!teacher || !teacher.user) {
+      return res.status(404).json({ message: 'Teacher record or user account not found' });
+    }
+
+    const newPassword = generatePassword();
+    teacher.user.password = await bcrypt.hash(newPassword, 10);
+    await teacher.user.save();
+
+    const teacherName = `${teacher.user.firstName} ${teacher.user.lastName}`.trim();
+    const mail = teacherCredentialsEmail({
+      firstName: teacher.user.firstName,
+      email: teacher.user.email,
+      password: newPassword,
+    });
+
+    let emailSent = true;
+    try {
+      await mailer.sendEmail({
+        to: teacher.user.email,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+    } catch (err) {
+      console.warn('Teacher reset password email delivery warning:', err.message);
+      emailSent = false;
+    }
+
+    return res.status(200).json({
+      message: 'Teacher password reset successfully',
+      credentials: {
+        teacher: {
+          name: teacherName,
+          email: teacher.user.email,
+          password: newPassword,
+          role: 'teacher',
+        },
+      },
+      emailSent,
+    });
+  } catch (error) {
+    next(error);
   }
 };

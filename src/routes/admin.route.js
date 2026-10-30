@@ -22,9 +22,9 @@ import { addAnnouncement, getAnnouncements, updateAnnouncement, getAnnouncementB
 import { addClass, getClasses, getClassById, updateClass, deleteClass } from "../controllers/admin/class.controller.js"
 import { getComplaints, getComplaintById, updateComplaintStatus, deleteComplaint } from '../controllers/admin/complaint.controller.js';
 import { addCourse, getCourses, getCourseById, updateCourse, deleteCourse } from "../controllers/admin/course.controller.js";
-import { addStudent, getStudents, getStudentById, setStudentStatus, updateStudent, deleteStudent } from '../controllers/admin/student.controller.js'
-import { getGuardianById, getGuardians, setGuardianStatus, updateGuardian, deleteGuardian } from '../controllers/admin/guardian.controller.js'
-import { addTeacher, getTeachers, getTeacherById, setTeacherStatus, updateTeacher, deleteTeacher } from '../controllers/admin/teacher.controller.js'
+import { addStudent, getStudents, getStudentById, setStudentStatus, updateStudent, deleteStudent, resetStudentPassword } from '../controllers/admin/student.controller.js'
+import { getGuardianById, getGuardians, setGuardianStatus, updateGuardian, deleteGuardian, resetGuardianPassword } from '../controllers/admin/guardian.controller.js'
+import { addTeacher, getTeachers, getTeacherById, setTeacherStatus, updateTeacher, deleteTeacher, resetTeacherPassword } from '../controllers/admin/teacher.controller.js'
 import {createInvoice, getPayments, getPaymentById, updatePayment, resendInvoice, cancelPayment} from '../controllers/admin/payment.controller.js'
 import { handleStudentUpload, handleTeacherUpload   } from "../middleware/multer.middleware.js";
 
@@ -78,6 +78,7 @@ router.get('/students/:id', getStudentById);
 router.patch('/students/:id/status', setStudentStatus);
 router.patch('/students/:id', handleStudentUpload, updateStudent);
 router.delete('/students/:id', deleteStudent);
+router.patch('/students/:id/reset-password', resetStudentPassword);
 
 // GUARDIAN ROUTES for admin
 router.get('/guardians', getGuardians);
@@ -85,6 +86,7 @@ router.get('/guardians/:id', getGuardianById);
 router.patch('/guardians/:id/status', setGuardianStatus);
 router.patch('/guardians/:id', updateGuardian);
 router.delete('/guardians/:id', deleteGuardian);
+router.patch('/guardians/:id/reset-password', resetGuardianPassword);
 
 // TEACHER ROUTES for admin
 router.post('/teachers', handleTeacherUpload, addTeacher);
@@ -93,6 +95,7 @@ router.get('/teachers/:id', getTeacherById);
 router.patch('/teachers/:id/status', setTeacherStatus);
 router.patch('/teachers/:id', handleTeacherUpload, updateTeacher);
 router.delete('/teachers/:id', deleteTeacher);
+router.patch('/teachers/:id/reset-password', resetTeacherPassword);
 
 
 // PAYMENT / INVOICE ROUTES for admin

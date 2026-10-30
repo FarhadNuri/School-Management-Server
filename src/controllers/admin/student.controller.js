@@ -536,18 +536,18 @@ const addStudent = async (req, res, next) => {
             );
         }
 
+        // Persist the new guardian password
+        if (pendingGuardianPasswordHash) {
+            guardianUser.password = pendingGuardianPasswordHash;
+            await guardianUser.save();
+        }
+
         let emailSent = true;
         try {
             await Promise.all(emailJobs);
         } catch (emailError) {
             console.error('Credential email failed after account creation (continuing student creation):', emailError.message);
             emailSent = false;
-        }
-
-        // Persist the new guardian password only after emails succeeded
-        if (pendingGuardianPasswordHash) {
-            guardianUser.password = pendingGuardianPasswordHash;
-            await guardianUser.save();
         }
 
         // Return the populated student (user, guardian, class) without heavy related collections
@@ -561,8 +561,24 @@ const addStudent = async (req, res, next) => {
                 ? 'Student created and linked to existing guardian successfully'
                 : 'Student and guardian created successfully',
             student: studentData,
-            emailSent: true,
-            guardianEmailSent: shouldEmailGuardian,
+            credentials: {
+                student: {
+                    name: studentName,
+                    email: studentEmail,
+                    password: studentPassword,
+                    role: 'student',
+                },
+                ...(guardianPassword ? {
+                    guardian: {
+                        name: `${guardianUser.firstName} ${guardianUser.lastName}`.trim(),
+                        email: guardianEmail,
+                        password: guardianPassword,
+                        role: 'guardian',
+                    }
+                } : {}),
+            },
+            emailSent,
+            guardianEmailSent: Boolean(shouldEmailGuardian && emailSent),
         });
     } catch (error) {
         // Undo any DB writes from this request and delete orphaned Cloudinary uploads
@@ -1011,5 +1027,54 @@ export const deleteStudent = async (req, res) => {
   } catch (error) {
     console.error('Error in deleteStudent:', error);
     return res.status(500).json({ success: false, message: 'Internal server error', error: error.message });
+  }
+};
+
+export const resetStudentPassword = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const student = await StudentModel.findById(id).populate('user');
+    if (!student || !student.user) {
+      return res.status(404).json({ message: 'Student record or user account not found' });
+    }
+
+    const newPassword = generatePassword();
+    student.user.password = await bcrypt.hash(newPassword, 10);
+    await student.user.save();
+
+    const studentName = `${student.user.firstName} ${student.user.lastName}`.trim();
+    const mail = studentCredentialsEmail({
+      firstName: student.user.firstName,
+      email: student.user.email,
+      password: newPassword,
+    });
+
+    let emailSent = true;
+    try {
+      await mailer.sendEmail({
+        to: student.user.email,
+        subject: mail.subject,
+        text: mail.text,
+        html: mail.html,
+      });
+    } catch (err) {
+      console.warn('Student reset password email delivery warning:', err.message);
+      emailSent = false;
+    }
+
+    return res.status(200).json({
+      message: 'Student password reset successfully',
+      credentials: {
+        student: {
+          name: studentName,
+          email: student.user.email,
+          password: newPassword,
+          role: 'student',
+        },
+      },
+      emailSent,
+    });
+  } catch (error) {
+    next(error);
   }
 };

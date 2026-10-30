@@ -25,6 +25,9 @@ const ENV = {
 
     STRIPE_API_KEY: process.env.STRIPE_API_KEY,
     STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
+
+    RESEND_API_KEY: process.env.RESEND_API_KEY,
+    BREVO_API_KEY: process.env.BREVO_API_KEY,
 };
 
 export const {
@@ -45,6 +48,8 @@ export const {
     MAILTRAP_TOKEN = process.env.MAILTRAP_TOKEN || process.env.MAILTRAP_PASSWORD,
     STRIPE_API_KEY,
     STRIPE_PUBLISHABLE_KEY,
+    RESEND_API_KEY,
+    BREVO_API_KEY,
 } = ENV;
 
-export default ENV;
+export default ENV;
