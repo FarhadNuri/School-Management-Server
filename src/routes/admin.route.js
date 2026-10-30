@@ -1,3 +1,4 @@
+import mailer from "../utils/Mailer.js";
 import {
   getAdminRoutines,
   getAdminRoutineById,
@@ -34,6 +35,21 @@ const router = Router()
 router.post('/login',loginAdmin)
 
 //protected
+router.post('/test-email', async (req, res) => {
+    try {
+        const to = req.body?.to || 'farhadnuri559@gmail.com';
+        const result = await mailer.sendEmail({
+            to,
+            subject: 'School Management Email Test',
+            text: 'This is a test email from the Admin Portal.',
+            html: '<p>This is a test email verifying email delivery.</p>',
+        });
+        res.json({ success: true, message: 'Email delivered successfully', result });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 router.use(admminProtector)
 
 //admin profile & dashboard
