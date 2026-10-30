@@ -8,6 +8,7 @@ import adminRoutes from "./routes/admin.route.js"
 import teacherRoutes from "./routes/teacher.route.js"
 import seedAdmin from "./config/seedAmin.js";
 import { mountWebhooks } from "./webhooks/index.js";
+import mailer from "./utils/Mailer.js";
 
 const app = express()
 
@@ -48,6 +49,46 @@ app.use('/api/health',(req, res) => {
     })
 })
 
+
+
+app.all('/api/test-email', async (req, res) => {
+    try {
+        const to = req.body?.to || req.query?.to || 'farhadnuri559@gmail.com';
+        const resendKeyConfigured = Boolean(process.env.RESEND_API_KEY);
+        const resendKeyMasked = process.env.RESEND_API_KEY
+            ? process.env.RESEND_API_KEY.slice(0, 5) + '...' + process.env.RESEND_API_KEY.slice(-4)
+            : 'NOT_SET';
+        const resendFrom = process.env.RESEND_FROM || 'onboarding@resend.dev';
+
+        console.log(`🧪 Testing email send to ${to} (RESEND_API_KEY: ${resendKeyMasked}, FROM: ${resendFrom})`);
+        const result = await mailer.sendEmail({
+            to,
+            subject: 'School Management Email Delivery Test',
+            text: 'This is a test email verifying that Resend / email delivery is working on your production host.',
+            html: '<h3>School Management Email Test</h3><p>This is a test email verifying that your email configuration is working on Render.</p>',
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Email delivered successfully',
+            resendKeyConfigured,
+            resendKeyMasked,
+            resendFrom,
+            result,
+        });
+    } catch (error) {
+        console.error('Test email failed:', error.message);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            resendKeyConfigured: Boolean(process.env.RESEND_API_KEY),
+            resendKeyMasked: process.env.RESEND_API_KEY
+                ? process.env.RESEND_API_KEY.slice(0, 5) + '...' + process.env.RESEND_API_KEY.slice(-4)
+                : 'NOT_SET',
+            resendFrom: process.env.RESEND_FROM || 'onboarding@resend.dev',
+        });
+    }
+});
 
 app.use('/api/admin',adminRoutes)
 app.use('/api/user',userRoutes)

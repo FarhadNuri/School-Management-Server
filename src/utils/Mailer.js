@@ -56,8 +56,13 @@ class EmailSender {
         // 1. Check for HTTPS API providers first (Port 443 - never blocked by cloud hosts like Render)
         const resendKey = (process.env.RESEND_API_KEY || '').trim();
         if (resendKey) {
+            let fromAddress = (process.env.RESEND_FROM || '').trim();
+            // If fromAddress is not set or uses a public mailbox (which Resend forbids without domain), fallback to onboarding@resend.dev
+            if (!fromAddress || fromAddress.includes('@gmail.com') || fromAddress.includes('@yahoo.com') || fromAddress.includes('@outlook.com') || fromAddress.includes('@hotmail.com')) {
+                fromAddress = 'onboarding@resend.dev';
+            }
+
             try {
-                const fromAddress = process.env.RESEND_FROM || 'onboarding@resend.dev';
                 const res = await fetch('https://api.resend.com/emails', {
                     method: 'POST',
                     headers: {
@@ -71,17 +76,21 @@ class EmailSender {
                         ...(html && { html }),
                         ...(text && { text }),
                     }),
-                    signal: AbortSignal.timeout(5000),
+                    signal: AbortSignal.timeout(6000),
                 });
+
+                const data = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    const data = await res.json().catch(() => ({}));
                     console.log(`✉️ Email successfully delivered via Resend API to ${to} (id: ${data.id})`);
                     return data;
                 }
-                const errData = await res.json().catch(() => ({}));
-                console.warn('Resend API responded with error:', errData);
+
+                const errMsg = data?.message || data?.error || JSON.stringify(data);
+                console.error(`❌ Resend API returned error (${res.status}): ${errMsg}`);
+                throw new Error(`Resend API (${res.status}): ${errMsg}`);
             } catch (err) {
-                console.warn('Resend API call failed:', err.message);
+                console.error(`❌ Resend delivery failed:`, err.message);
+                throw err;
             }
         }
 
