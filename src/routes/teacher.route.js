@@ -22,6 +22,7 @@ import {
 import {
     createHomework,
     updateHomework,
+    deleteHomework,
     getTeacherHomeworks,
     getTeacherHomeworkById,
 } from "../controllers/teacher/homework.controller.js";
@@ -82,6 +83,7 @@ router.post('/homeworks', handleHomeworkUpload, createHomework);
 router.get('/homeworks/:id', getTeacherHomeworkById);
 router.get('/homeworks/:id/submissions', getHomeworkSubmissions);
 router.patch('/homeworks/:id', handleHomeworkUpload, updateHomework);
+router.delete('/homeworks/:id', deleteHomework);
 
 router.get('/exams', getTeacherExams);
 router.post('/exams', createExam);
