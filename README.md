@@ -1,6 +1,6 @@
 # Sunrise Model School - Backend Server
 
-A comprehensive, enterprise-ready School Management Backend API built with **Node.js**, **Express**, and **MongoDB**. Designed for multi-tenant educational institutions, it provides granular role-based access control (Admin, Teacher, Student, Guardian), Stripe-powered automated billing with live receipt synchronization, resilient transactional email delivery (Resend API, Brevo, Mailtrap, Nodemailer SMTP), class & teacher timetable routines, homework submission lifecycles, subject-scoped gradebooks, daily section attendance, and media management powered by Cloudinary.
+A comprehensive, enterprise-ready School Management Backend API built with **Node.js**, **Express**, and **MongoDB**. Designed for multi-tenant educational institutions, it provides granular role-based access control (Admin, Teacher, Student, Guardian), Stripe-powered automated billing with live receipt synchronization, class & teacher timetable routines, homework submission lifecycles, subject-scoped gradebooks, daily section attendance, and media management powered by Cloudinary.
 
 ---
 
@@ -77,7 +77,7 @@ flowchart TD
         DB[(MongoDB Database)]
         Cloudinary["Cloudinary (File Storage)"]
         Stripe["Stripe Payments & Invoices"]
-        Mailer["Multi-Transport Mailer\n(Resend API / Brevo / Mailtrap / SMTP)"]
+        Mailer["Multi-Transport Mailer\n(Resend API & Mailtrap SMTP)"]
     end
 
     Clients -->|Bearer JWT| AuthGuard
@@ -394,43 +394,11 @@ src/
 
 ---
 
-## Transactional Email & Billing Lifecycles
+## Billing Lifecycles
 
-### ✉️ Resilient Multi-Transport Email Dispatcher
-Outbound transactional emails are managed by `src/utils/Mailer.js` featuring priority tiers designed to prevent blocking on cloud hosting providers:
 
-```mermaid
-flowchart TD
-    Trigger["Dispatch Email Request"] --> ResendCheck{"RESEND_API_KEY Configured?"}
-    
-    ResendCheck -- Yes --> Resend["Deliver via Resend HTTPS API (Port 443)\n[Bypasses cloud host SMTP blocking]"]
-    Resend -- Success --> Delivered["Email Delivered Successfully"]
-    Resend -- Fail --> BrevoCheck
-    
-    ResendCheck -- No --> BrevoCheck{"BREVO_API_KEY Configured?"}
-    BrevoCheck -- Yes --> Brevo["Deliver via Brevo HTTPS API (Port 443)"]
-    Brevo -- Success --> Delivered
-    Brevo -- Fail --> MailtrapAPICheck
-    
-    BrevoCheck -- No --> MailtrapAPICheck{"MAILTRAP_TOKEN Configured?"}
-    MailtrapAPICheck -- Yes --> MailtrapAPI["Deliver via Mailtrap HTTPS API"]
-    MailtrapAPI -- Success --> Delivered
-    MailtrapAPI -- Fail --> SMTPFallback
-    
-    MailtrapAPICheck -- No --> SMTPFallback["Nodemailer SMTP (Gmail / Mailtrap SMTP)\n[5-Second Socket Timeout Guard]"]
-    SMTPFallback -- Success --> Delivered
-    SMTPFallback -- Fail --> Error["Logs Diagnostic Error (Never Blocks Requests)"]
-```
 
-#### Onboarding Fail-Safe
-When an administrator registers a Student, Teacher, or Guardian:
-1. A cryptographically secure random password is generated.
-2. The password and login credentials are automatically dispatched via email.
-3. As an immediate fail-safe, the credentials are also returned directly in the administrator's HTTP JSON response to ensure no account access is lost if the recipient's mail provider delays delivery.
-
----
-
-### 💳 Stripe Checkout & Receipt Workflow
+### Stripe Checkout & Receipt Workflow
 
 ```mermaid
 sequenceDiagram
