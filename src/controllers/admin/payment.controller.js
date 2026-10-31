@@ -52,7 +52,10 @@ const loadPayment = async (id) => {
 };
 
 const syncPaymentWithStripe = async (payment) => {
-  if (!payment.stripeInvoiceId || payment.status === 'paid') {
+  if (!payment || !payment.stripeInvoiceId) {
+    return payment;
+  }
+  if (payment.status === 'paid' && payment.receiptUrl) {
     return payment;
   }
 
@@ -60,8 +63,10 @@ const syncPaymentWithStripe = async (payment) => {
     const invoice = await stripeService.retrieveInvoice(
       payment.stripeInvoiceId
     );
-    stripeService.applyInvoiceToPayment(payment, invoice);
-    await payment.save();
+    if (invoice) {
+      await stripeService.applyInvoiceToPayment(payment, invoice);
+      await payment.save();
+    }
   } catch (error) {
     console.warn('Stripe sync skipped:', error.message);
   }
@@ -194,7 +199,7 @@ export const createInvoice = async (req, res, next) => {
         studentName: personName(student),
       });
 
-      stripeService.applyInvoiceToPayment(payment, stripeInvoice);
+      await stripeService.applyInvoiceToPayment(payment, stripeInvoice);
       await payment.save();
     } catch (stripeError) {
       payment.status = 'failed';
@@ -389,7 +394,7 @@ export const cancelPayment = async (req, res, next) => {
         const voided = await stripeService.voidInvoice(
           payment.stripeInvoiceId,
         );
-        stripeService.applyInvoiceToPayment(payment, voided);
+        await stripeService.applyInvoiceToPayment(payment, voided);
       } catch (stripeError) {
         // Still cancel locally if Stripe invoice is already unusable.
         console.warn('Stripe void failed:', stripeError.message);
