@@ -19,29 +19,35 @@ import {
  */
 
 const syncPaymentWithStripe = async (payment) => {
-  if (!payment || payment.status === 'paid') return payment;
+  if (!payment) return payment;
+  // If payment is paid and already has receiptUrl, no need to sync
+  if (payment.status === 'paid' && payment.receiptUrl) return payment;
 
   try {
     if (payment.stripeInvoiceId) {
       const invoice = await stripeService.retrieveInvoice(payment.stripeInvoiceId);
-      if (invoice && invoice.status === 'paid') {
-        stripeService.applyInvoiceToPayment(payment, invoice);
+      if (invoice) {
+        await stripeService.applyInvoiceToPayment(payment, invoice);
         await payment.save();
-        try {
-          await sendPaymentReceiptEmail(payment);
-        } catch (e) {
-          console.warn('Receipt email failed:', e.message);
+        if (invoice.status === 'paid') {
+          try {
+            await sendPaymentReceiptEmail(payment);
+          } catch (e) {
+            console.warn('Receipt email failed:', e.message);
+          }
         }
       }
     } else if (payment.stripeCheckoutSessionId) {
       const session = await stripeService.retrieveCheckoutSession(payment.stripeCheckoutSessionId);
-      if (session && session.payment_status === 'paid') {
-        stripeService.applyCheckoutSessionToPayment(payment, session);
+      if (session) {
+        await stripeService.applyCheckoutSessionToPayment(payment, session);
         await payment.save();
-        try {
-          await sendPaymentReceiptEmail(payment);
-        } catch (e) {
-          console.warn('Receipt email failed:', e.message);
+        if (session.payment_status === 'paid') {
+          try {
+            await sendPaymentReceiptEmail(payment);
+          } catch (e) {
+            console.warn('Receipt email failed:', e.message);
+          }
         }
       }
     }
@@ -105,9 +111,9 @@ export const getMyPayments = async (req, res, next) => {
       .populate(paymentPopulate)
       .sort({ createdAt: -1 });
 
-    // Live sync any pending/overdue invoices with Stripe
+    // Live sync any pending/overdue invoices, OR paid invoices missing receiptUrl with Stripe
     const pendingStripeList = payments.filter(
-      (p) => p.status !== 'paid' && (p.stripeInvoiceId || p.stripeCheckoutSessionId)
+      (p) => (p.status !== 'paid' || !p.receiptUrl) && (p.stripeInvoiceId || p.stripeCheckoutSessionId)
     );
 
     if (pendingStripeList.length > 0) {
@@ -281,11 +287,13 @@ export const confirmCheckoutSession = async (req, res, next) => {
 
     const paymentId = session.metadata?.paymentId;
     if (paymentId && session.payment_status === 'paid') {
+      const receiptUrl = session.payment_intent?.latest_charge?.receipt_url || '';
       await PaymentModel.findByIdAndUpdate(paymentId, {
         status: 'paid',
         paidDate: new Date(),
         amountPaid: Number(session.amount_total || 0) / 100,
         transactionId: session.payment_intent?.id || session.id,
+        ...(receiptUrl ? { receiptUrl } : {}),
       });
     }
 
