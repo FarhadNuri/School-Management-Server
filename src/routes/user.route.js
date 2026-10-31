@@ -1,9 +1,9 @@
 import { getMyRoutine } from '../controllers/user/routine.controller.js';
 import { getMyGrades } from '../controllers/user/grade.controller.js';
 import { Router } from 'express';
-import { loginUser, getMe, changePassword } from '../controllers/user.controller.js';
+import { loginUser, getMe, changePassword, updateMyPhoto } from '../controllers/user.controller.js';
 import { protectUser } from '../middleware/user.middleware.js';
-import { handleComplaintUpload, handleHomeworkUpload } from '../middleware/multer.middleware.js';
+import { handleComplaintUpload, handleHomeworkUpload, handleUserPhotoUpload } from '../middleware/multer.middleware.js';
 import { makeComplaint, getComplaints, getComplaintById, updateComplaint } from '../controllers/user/user.controller.js';
 import { getMyHomeworkById, getMyHomeworks, submitHomework } from '../controllers/user/homework.controller.js';
 import { getMyExams, getMyExamById } from '../controllers/user/exam.controller.js';
@@ -21,6 +21,8 @@ router.post('/login', loginUser);
 
 router.get('/me', protectUser, getMe);
 router.patch('/change-password', protectUser, changePassword);
+router.patch('/me/photo', protectUser, handleUserPhotoUpload, updateMyPhoto);
+router.patch('/photo', protectUser, handleUserPhotoUpload, updateMyPhoto);
 
 router.post('/complaint', protectUser, handleComplaintUpload, makeComplaint);
 router.get('/complaints', protectUser, getComplaints);
