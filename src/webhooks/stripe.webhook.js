@@ -49,7 +49,7 @@ const settleCheckoutSession = async (session) => {
     const payment = await findPaymentForCheckoutSession(session);
     if (!payment) return;
 
-    stripeService.applyCheckoutSessionToPayment(payment, session);
+    await stripeService.applyCheckoutSessionToPayment(payment, session);
     await payment.save();
 
     if (payment.status === 'paid' && payment.stripeInvoiceId) {
@@ -58,7 +58,7 @@ const settleCheckoutSession = async (session) => {
                 payment.stripeInvoiceId,
             );
             if (invoice) {
-                stripeService.applyInvoiceToPayment(payment, invoice);
+                await stripeService.applyInvoiceToPayment(payment, invoice);
                 await payment.save();
             }
         } catch (error) {
@@ -79,7 +79,7 @@ const handleInvoiceEvent = async (invoice) => {
     if (!payment) return;
 
     const wasPaid = payment.status === 'paid';
-    stripeService.applyInvoiceToPayment(payment, invoice);
+    await stripeService.applyInvoiceToPayment(payment, invoice);
     await payment.save();
 
     if (!wasPaid && payment.status === 'paid') {

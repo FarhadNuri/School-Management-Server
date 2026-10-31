@@ -4,6 +4,7 @@ import { UserModel } from '../models/user.model.js';
 import StudentModel from '../models/student.model.js';
 import '../models/class.model.js';
 import ENV from '../config/env.js';
+import { uploadFiles, deleteFromCloudinaryMany } from '../middleware/multer.middleware.js';
 
 const serializeUser = async (user) => {
   const base = {
@@ -132,6 +133,50 @@ export const changePassword = async (req, res, next) => {
     await user.save();
 
     res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateMyPhoto = async (req, res, next) => {
+  try {
+    const uploadedUrls = [];
+
+    try {
+      if (!req.files?.photo?.[0]) {
+        return res.status(400).json({ message: 'Profile photo is required' });
+      }
+
+      const uploaded = await uploadFiles(req.files, 'users');
+      uploadedUrls.push(...Object.values(uploaded).filter(Boolean));
+
+      const user = await UserModel.findById(req.user._id);
+      if (!user) {
+        await deleteFromCloudinaryMany(uploadedUrls);
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      const previousPhoto = user.photo;
+      user.photo = uploaded.photo;
+      await user.save();
+
+      if (previousPhoto) {
+        await deleteFromCloudinaryMany([previousPhoto]);
+      }
+
+      const serialized = await serializeUser(user);
+
+      res.json({
+        message: 'Profile photo updated successfully',
+        photo: user.photo,
+        user: serialized,
+      });
+    } catch (uploadError) {
+      if (uploadedUrls.length > 0) {
+        await deleteFromCloudinaryMany(uploadedUrls);
+      }
+      throw uploadError;
+    }
   } catch (error) {
     next(error);
   }

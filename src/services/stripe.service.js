@@ -160,31 +160,36 @@ const createCheckoutSession = async ({ payment, customerId, studentName }) => {
 const retrieveCheckoutSession = async (sessionId) => {
   if (!sessionId) return null;
   return stripe.checkout.sessions.retrieve(sessionId, {
-    expand: ['payment_intent', 'line_items'],
+    expand: ['payment_intent', 'payment_intent.latest_charge', 'line_items'],
   });
 };
 
 const retrieveInvoice = async (stripeInvoiceId) => {
   if (!stripeInvoiceId) return null;
   return stripe.invoices.retrieve(stripeInvoiceId, {
-    expand: ['payment_intent'],
+    expand: ['payment_intent', 'charge', 'payment_intent.latest_charge'],
   });
 };
 
 const markInvoicePaidOutOfBand = async (stripeInvoiceId) => {
   if (!stripeInvoiceId) return null;
-  const invoice = await stripe.invoices.retrieve(stripeInvoiceId);
+  const invoice = await stripe.invoices.retrieve(stripeInvoiceId, {
+    expand: ['payment_intent', 'charge', 'payment_intent.latest_charge'],
+  });
   if (!invoice || invoice.status === 'paid') {
     return invoice;
   }
 
   if (invoice.status === 'draft') {
-    const finalized = await stripe.invoices.finalizeInvoice(invoice.id);
+    const finalized = await stripe.invoices.finalizeInvoice(invoice.id, {
+      expand: ['payment_intent', 'charge', 'payment_intent.latest_charge'],
+    });
     if (finalized.status === 'paid') return finalized;
   }
 
   return stripe.invoices.pay(stripeInvoiceId, {
     paid_out_of_band: true,
+    expand: ['payment_intent', 'charge', 'payment_intent.latest_charge'],
   });
 };
 
@@ -193,7 +198,7 @@ const voidInvoice = async (stripeInvoiceId) => {
   return stripe.invoices.voidInvoice(stripeInvoiceId);
 };
 
-const applyInvoiceToPayment = (payment, invoice) => {
+const applyInvoiceToPayment = async (payment, invoice) => {
   if (!payment || !invoice) return payment;
 
   payment.stripeInvoiceId = invoice.id || payment.stripeInvoiceId;
@@ -215,14 +220,56 @@ const applyInvoiceToPayment = (payment, invoice) => {
     payment.stripePaymentIntentId = invoice.payment_intent;
   }
 
-  if (invoice.status === 'paid') {
+  // Extract receipt URL (from expanded charge or latest_charge on paymentIntent)
+  let receiptUrl =
+    (typeof invoice.charge === 'object' ? invoice.charge?.receipt_url : null) ||
+    paymentIntent?.latest_charge?.receipt_url ||
+    payment.receiptUrl ||
+    '';
+
+  // If invoice is paid but receiptUrl is not yet set, retrieve charge from Stripe
+  if (!receiptUrl && (invoice.status === 'paid' || invoice.paid)) {
+    const chargeId = typeof invoice.charge === 'string' ? invoice.charge : null;
+    if (chargeId) {
+      try {
+        const ch = await stripe.charges.retrieve(chargeId);
+        if (ch?.receipt_url) receiptUrl = ch.receipt_url;
+      } catch (err) {
+        console.warn('Could not fetch charge for receipt:', err.message);
+      }
+    } else {
+      const piId = typeof invoice.payment_intent === 'string'
+        ? invoice.payment_intent
+        : payment.stripePaymentIntentId;
+      if (piId) {
+        try {
+          const pi = await stripe.paymentIntents.retrieve(piId, {
+            expand: ['latest_charge'],
+          });
+          if (pi?.latest_charge?.receipt_url) {
+            receiptUrl = pi.latest_charge.receipt_url;
+          }
+        } catch (err) {
+          console.warn('Could not fetch payment intent for receipt:', err.message);
+        }
+      }
+    }
+  }
+
+  if (receiptUrl) {
+    payment.receiptUrl = receiptUrl;
+  }
+
+  if (invoice.status === 'paid' || invoice.paid) {
     payment.status = 'paid';
     payment.amountPaid =
       typeof invoice.amount_paid === 'number'
         ? invoice.amount_paid / 100
         : payment.amount;
     payment.method = 'stripe';
-    payment.paidDate = new Date();
+    if (!payment.paidDate) {
+      payment.paidDate = new Date();
+    }
     payment.transactionId =
       payment.stripePaymentIntentId || invoice.id || payment.transactionId;
   } else if (
@@ -238,7 +285,7 @@ const applyInvoiceToPayment = (payment, invoice) => {
   return payment;
 };
 
-const applyCheckoutSessionToPayment = (payment, session) => {
+const applyCheckoutSessionToPayment = async (payment, session) => {
   if (!payment || !session) return payment;
 
   payment.stripeCheckoutSessionId = session.id || payment.stripeCheckoutSessionId;
@@ -257,11 +304,40 @@ const applyCheckoutSessionToPayment = (payment, session) => {
     payment.stripePaymentIntentId = session.payment_intent;
   }
 
+  let receiptUrl =
+    paymentIntent?.latest_charge?.receipt_url ||
+    payment.receiptUrl ||
+    '';
+
+  if (!receiptUrl && session.payment_status === 'paid') {
+    const piId = typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : paymentIntent?.id;
+    if (piId) {
+      try {
+        const pi = await stripe.paymentIntents.retrieve(piId, {
+          expand: ['latest_charge'],
+        });
+        if (pi?.latest_charge?.receipt_url) {
+          receiptUrl = pi.latest_charge.receipt_url;
+        }
+      } catch (err) {
+        console.warn('Could not fetch checkout session receipt:', err.message);
+      }
+    }
+  }
+
+  if (receiptUrl) {
+    payment.receiptUrl = receiptUrl;
+  }
+
   if (session.payment_status === 'paid') {
     payment.status = 'paid';
     payment.amountPaid = payment.amount;
     payment.method = 'stripe';
-    payment.paidDate = new Date();
+    if (!payment.paidDate) {
+      payment.paidDate = new Date();
+    }
     payment.transactionId =
       payment.stripePaymentIntentId || session.id || payment.transactionId;
   } else if (

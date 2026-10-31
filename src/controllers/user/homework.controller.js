@@ -1,6 +1,7 @@
 import HomeworkModel from "../../models/homework.model.js";
 import HomeworkSubmissionModel from "../../models/homeworkSubmission.model.js";
 import StudentModel from "../../models/student.model.js";
+import GuardianModel from "../../models/guardian.model.js";
 import {
   assertValidObjectId,
   resolveAccessContext,
@@ -44,6 +45,36 @@ export const getMyHomeworks = async (req, res, next) => {
           submissionMap.set(String(sub.homework), sub);
         });
       } 
+    } else if (context.role === "guardian") {
+      const guardian = await GuardianModel.findOne({ user: req.user._id }).select("_id students").lean();
+      if (guardian) {
+        const wardDocs = await StudentModel.find({
+          $or: [
+            { _id: { $in: guardian.students || [] } },
+            { guardian: guardian._id },
+          ],
+        }).select("_id user").populate({ path: "user", select: "firstName lastName" }).lean();
+
+        const wardIds = wardDocs.map((w) => w._id);
+        const wardNameMap = new Map();
+        wardDocs.forEach((w) => {
+          const name = ((w.user?.firstName || "") + " " + (w.user?.lastName || "")).trim() || "Student";
+          wardNameMap.set(String(w._id), name);
+        });
+
+        if (wardIds.length > 0) {
+          const submissions = await HomeworkSubmissionModel.find({
+            student: { $in: wardIds },
+          }).sort({ submittedAt: -1 }).lean();
+
+          submissions.forEach((sub) => {
+            if (!submissionMap.has(String(sub.homework))) {
+              sub.studentName = wardNameMap.get(String(sub.student)) || "Student";
+              submissionMap.set(String(sub.homework), sub);
+            }
+          });
+        }
+      }
     }
 
     const homeworkIds = homeworks.map((h) => h._id);
@@ -72,12 +103,15 @@ export const getMyHomeworks = async (req, res, next) => {
         submission: sub
           ? {
               id: String(sub._id),
+              studentId: String(sub.student?._id || sub.student || ""),
+              studentName: sub.studentName || "",
               link: sub.link || null,
               fileUrl: sub.fileUrl || null,
               fileName: sub.fileName || "Attachment",
               fileType: sub.fileType || "",
               fileSize: sub.fileSize || 0,
               comment: sub.comment || "",
+              status: sub.status || "submitted",
               submittedAt: sub.submittedAt,
               resubmittedAt: sub.resubmittedAt,
               isResubmitted: sub.isResubmitted || false,
@@ -128,16 +162,56 @@ export const getMyHomeworkById = async (req, res, next) => {
       if (sub) {
         submission = {
           id: String(sub._id),
+          studentId: String(sub.student),
           link: sub.link || null,
           fileUrl: sub.fileUrl || null,
           fileName: sub.fileName || "Attachment",
           fileType: sub.fileType || "",
           fileSize: sub.fileSize || 0,
           comment: sub.comment || "",
+          status: sub.status || "submitted",
           submittedAt: sub.submittedAt,
           resubmittedAt: sub.resubmittedAt,
           isResubmitted: sub.isResubmitted || false,
         };
+      }
+    } else if (context.role === "guardian") {
+      const guardian = await GuardianModel.findOne({ user: req.user._id }).select("_id students").lean();
+      if (guardian) {
+        const wardDocs = await StudentModel.find({
+          $or: [
+            { _id: { $in: guardian.students || [] } },
+            { guardian: guardian._id },
+          ],
+        }).select("_id user").populate({ path: "user", select: "firstName lastName" }).lean();
+        const wardIds = wardDocs.map((w) => w._id);
+        if (wardIds.length > 0) {
+          const sub = await HomeworkSubmissionModel.findOne({
+            homework: homework._id,
+            student: { $in: wardIds },
+          }).sort({ submittedAt: -1 }).lean();
+          if (sub) {
+            const matchedWard = wardDocs.find((w) => String(w._id) === String(sub.student));
+            const studentName = matchedWard
+              ? `${matchedWard.user?.firstName || ''} ${matchedWard.user?.lastName || ''}`.trim()
+              : 'Student';
+            submission = {
+              id: String(sub._id),
+              studentId: String(sub.student),
+              studentName,
+              link: sub.link || null,
+              fileUrl: sub.fileUrl || null,
+              fileName: sub.fileName || "Attachment",
+              fileType: sub.fileType || "",
+              fileSize: sub.fileSize || 0,
+              comment: sub.comment || "",
+              status: sub.status || "submitted",
+              submittedAt: sub.submittedAt,
+              resubmittedAt: sub.resubmittedAt,
+              isResubmitted: sub.isResubmitted || false,
+            };
+          }
+        }
       }
     }
 

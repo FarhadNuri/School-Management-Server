@@ -387,9 +387,52 @@ const getTeacherHomeworkById = async (req, res, next) => {
   }
 };
 
+
+const deleteHomework = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    assertValidObjectId(id, 'homework ID');
+
+    const existing = await HomeworkModel.findOne({
+      _id: id,
+      isActive: true,
+    });
+
+    if (!existing) {
+      return res.status(404).json({ message: 'Homework not found' });
+    }
+
+    const isOwner = String(existing.teacher) === String(req.teacher._id);
+    if (!isOwner) {
+      const classItem = await ClassModel.findById(existing.class).lean();
+      if (!classItem || !isAssignedClass(classItem, req.teacher)) {
+        return res.status(403).json({ message: 'Access denied. You cannot delete this homework.' });
+      }
+    }
+
+    if (existing.materials && existing.materials.length > 0) {
+      await deleteFromCloudinaryMany(existing.materials);
+    }
+
+    existing.isActive = false;
+    await existing.save();
+
+    res.json({
+      message: 'Homework deleted successfully',
+      id,
+    });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
+    next(error);
+  }
+};
+
 export {
   createHomework,
   updateHomework,
   getTeacherHomeworks,
   getTeacherHomeworkById,
+  deleteHomework,
 };
